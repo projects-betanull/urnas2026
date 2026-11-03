@@ -1,4 +1,4 @@
-import { registrar, resumo, htmlPainel, chaveDoPainelOk } from "./uso.js";
+import { registrar, resumo, htmlPainel, chaveDoPainelOk, backupSaldos } from "./uso.js";
 // Cloudflare Worker: site, API REST, servidor MCP (HTTP) e créditos em Lightning.
 import { conferirPendentes, recuperarComComprovante } from "./core.js";
 import {
@@ -189,6 +189,12 @@ export default {
     try {
       if (p === "/" || p === "/index.html")
         return new Response(SITE_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "max-age=300" } });
+      if (p === "/painel/backup") {
+        if (!(await chaveDoPainelOk(url.searchParams.get("k")))) return new Response("Não encontrado", { status: 404 });
+        const b = await backupSaldos(env.DB);
+        return new Response(JSON.stringify(b, null, 1), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store",
+          "content-disposition": `attachment; filename="saldos-urnas2026-${b.gerado_em.slice(0, 10)}.json"` } });
+      }
       if (p === "/painel") {
         if (!(await chaveDoPainelOk(url.searchParams.get("k")))) return new Response("Não encontrado", { status: 404 });
         await conferirPendentes(env.DB, fetcher);

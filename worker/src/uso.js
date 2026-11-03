@@ -61,5 +61,16 @@ ${tabela(["Ferramenta", "Chamadas"], extras("mcp_ferramenta:"))}
 ${tabela(["Cliente", "Conexões"], extras("mcp_cliente:"))}
 <h2>Pagamentos</h2>
 ${tabela(["Dia", "Situação", "Pedidos", "Sats"], r.pagamentos.map(p => [p.dia, p.status, p.q, p.sats || 0]))}
+<p><a href="?k=" id="bk">Baixar backup dos saldos</a></p><script>document.getElementById("bk").href="/painel/backup"+location.search</script>
 <p><small>Visitantes e usuários contados por hash diário do IP; nenhum IP é guardado. Atualize a página para ver números novos.</small></p></body></html>`;
+}
+
+// Backup só dos saldos: hash da chave (irreversível) + créditos, e os pedidos com o payment hash
+// (necessário para recuperar chave pelo comprovante). Não contém nenhuma chave em claro nem a fatura inteira.
+import { paymentHashDaFatura } from "./core.js";
+export async function backupSaldos(db) {
+  const chaves = (await db.prepare("SELECT hash, creditos, criada_em FROM chave WHERE creditos > 0 OR hash IN (SELECT chave_hash FROM pagamento WHERE status = 'pago')").all()).results;
+  const pedidos = (await db.prepare("SELECT id, chave_hash, pacote, sats, creditos, invoice, status, criado_em, pago_em FROM pagamento WHERE status <> 'expirado'").all()).results
+    .map(({ invoice, ...p }) => { let ph = null; try { ph = paymentHashDaFatura(invoice); } catch {} return { ...p, payment_hash: ph }; });
+  return { gerado_em: new Date().toISOString(), versao: 1, chaves, pedidos };
 }

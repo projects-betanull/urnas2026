@@ -320,7 +320,7 @@ export async function recuperarComComprovante(db, preimage) {
   const h = await sha256Hex(pre);
   let p = null;
   for (const x of (await db.prepare("SELECT * FROM pagamento ORDER BY criado_em DESC").all()).results) {
-    try { if (paymentHashDaFatura(x.invoice) === h) { p = x; break; } } catch {}
+    try { if ((x.invoice.startsWith("ph:") ? x.invoice.slice(3) : paymentHashDaFatura(x.invoice)) === h) { p = x; break; } } catch {}
   }
   if (!p) throw new ErroApi(404, "Esse comprovante não corresponde a nenhuma compra deste site.");
   if (p.status !== "pago") {
