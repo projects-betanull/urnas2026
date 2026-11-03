@@ -8,7 +8,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const n = v => Number(v || 0).toLocaleString("pt-BR");
 const reais = v => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 const slug = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const titulo = s => String(s || "").toLowerCase().replace(/(^|\s|-)\S/g, m => m.toUpperCase());
+const titulo = s => String(s || "").toLowerCase().replace(/(^|\s|-)\S/g, m => m.toUpperCase()).replace(/ (Por|De|Da|Do|Dos|Das|E) /g, m => m.toLowerCase()).replace(/\bQp\b/g, "QP");
 export const linkCandidato = c => `/candidato/${c.sq_candidato}-${slug(c.nome_urna)}`;
 
 function pagina({ titulo: t, descricao, canonico, corpo, origem }) {
@@ -46,11 +46,12 @@ export async function paginaUF(db, origem, uf) {
      WHERE c.uf = ? ORDER BY c.cargo, c.turno, votos DESC`).bind(uf).all()).results;
   if (!linhas.length) return naoAchou(origem);
   const grupos = {};
-  for (const l of linhas) (grupos[`${l.cargo}|${l.turno}`] ||= []).push(l);
+  for (const l of linhas) if (l.votos > 0 || l.situacao) (grupos[`${l.cargo}|${l.turno}`] ||= []).push(l);
+  for (const k of Object.keys(grupos)) if (!grupos[k].some(l => l.votos > 0)) delete grupos[k]; // vices e suplentes não recebem voto próprio
   const ordemCargo = ["PRESIDENTE", "GOVERNADOR", "SENADOR", "DEPUTADO FEDERAL", "DEPUTADO ESTADUAL", "DEPUTADO DISTRITAL"];
   const chaves = Object.keys(grupos).sort((a, b) => { const [ca, ta] = a.split("|"), [cb, tb] = b.split("|");
     return (ordemCargo.indexOf(ca) + 99 * (ordemCargo.indexOf(ca) < 0)) - (ordemCargo.indexOf(cb) + 99 * (ordemCargo.indexOf(cb) < 0)) || ta - tb; });
-  const nome = UFS[uf], cargos = [...new Set(linhas.map(l => titulo(l.cargo)))];
+  const nome = UFS[uf], cargos = [...new Set(Object.keys(grupos).map(k => titulo(k.split("|")[0])))];
   const blocos = chaves.map(k => { const [cargo, turno] = k.split("|"), g = grupos[k], tot = g.reduce((s, x) => s + x.votos, 0), top = g.slice(0, 30);
     return `<h2>${esc(titulo(cargo))}: ${turno}º turno</h2><p class="muted">${n(g.length)} candidatos, ${n(tot)} votos nominais.${g.length > 30 ? " Os 30 mais votados:" : ""}</p>
 <div class="tw"><table><tr><th>Candidato</th><th>Partido</th><th>Situação</th><th class="r">Votos</th><th class="r">%</th></tr>${top.map(c => `<tr><td><a href="${linkCandidato(c)}">${esc(c.nome_urna)}</a></td><td>${esc(c.partido)}</td><td>${esc(titulo(c.situacao))}</td><td class="r">${n(c.votos)}</td><td class="r">${tot ? (100 * c.votos / tot).toFixed(1).replace(".", ",") : "0"}</td></tr>`).join("")}</table></div>`; }).join("");
