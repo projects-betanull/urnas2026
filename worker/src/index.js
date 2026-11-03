@@ -226,6 +226,8 @@ export default {
       else if (p.startsWith("/api/") && !quem.site) await registrar(env.DB, "api", quem.ip);
       if (p === "/robots.txt")
         return new Response(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${url.origin}/sitemap.xml\n`, { headers: { "content-type": "text/plain; charset=utf-8" } });
+      // IndexNow (Bing, Yandex, Seznam, Naver): arquivo de verificação do dono do domínio. A chave é pública por desenho.
+      if (p === "/8945a79756d4de98ca768d8436a95966.txt") return new Response("8945a79756d4de98ca768d8436a95966", { headers: { "content-type": "text/plain" } });
       if (p === "/sitemap.xml") return await sitemap(env.DB, url.origin);
       if (p === "/estados") { await registrar(env.DB, "pagina", quem.ip); return await paginaEstados(env.DB, url.origin); }
       let mm;
