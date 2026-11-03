@@ -2,7 +2,7 @@
 import { sha256 } from "./core.js";
 
 // Hash SHA-256 da chave do painel. A chave em si fica só com o dono.
-export const PAINEL_HASH = "ccd3b375aafdc2a49435f7f763b5ee1b4230efd50866c533d5de158d3035dac1";
+export const PAINEL_HASH = "aff1dd7201c153cf1c85c348d81ae4ce2dd24387949c6368da17496457ee8213";
 
 let pronto = false;
 async function preparar(db) {
