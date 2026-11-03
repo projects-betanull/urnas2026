@@ -101,6 +101,10 @@ def pacotes(pasta):
                 yield None, a, open(caminho, "rb").read()
 
 
+# Os logs trazem o horário local da urna. A votação vai das 8h às 17h de Brasília em todo o país
+# (no exterior, das 8h às 17h locais). Diferença do horário local para o de Brasília, por UF:
+FUSO = {"AC": -2, "AM": -1, "RO": -1, "RR": -1, "MT": -1, "MS": -1}  # demais UFs: 0; ZZ: horário local do país
+
 def processar(pasta, prefixo, calibrar=0):
     if calibrar:
         cont = collections.Counter()
@@ -129,6 +133,8 @@ def processar(pasta, prefixo, calibrar=0):
         abertura TEXT, primeiro_voto TEXT, ultimo_voto TEXT, encerramento TEXT, votos INT,
         votos_apos_17h INT, votos_apos_19h INT, PRIMARY KEY (turno, cd_municipio, zona, secao));
       CREATE TABLE voto_minuto_uf (turno INT, uf TEXT, minuto TEXT, votos INT, PRIMARY KEY (turno, uf, minuto));
+      CREATE TABLE meta (chave TEXT PRIMARY KEY, valor TEXT);
+      INSERT INTO meta VALUES ('horarios', 'local'), ('apos_17h', 'brasilia');
     """)
     minuto = collections.Counter()
     n_sec = n_votos = sem_id = 0
@@ -153,7 +159,9 @@ def processar(pasta, prefixo, calibrar=0):
                 w.writerow([turno, uf, mun, zona, secao, dt.strftime("%Y-%m-%d %H:%M:%S")])
                 minuto[(turno, uf, dt.strftime("%H:%M"))] += 1
             dia = votos[0].date() if votos else None
-            apos = lambda h: sum(1 for dt in votos if dt.time() >= datetime.time(h, 0))
+            # votos depois das 17h/19h de Brasília (no exterior, do horário local)
+            fz = FUSO.get(uf, 0)
+            apos = lambda h: sum(1 for dt in votos if dt.time() >= datetime.time(h + fz, 0))
             db.execute("INSERT OR REPLACE INTO secao_tempo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (
                 turno, uf, mun, zona, secao,
                 ab and ab.strftime("%H:%M:%S"), votos and votos[0].strftime("%H:%M:%S"),

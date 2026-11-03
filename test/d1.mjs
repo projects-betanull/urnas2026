@@ -33,19 +33,22 @@ export function abrirUrnas(pasta) {
         abertas.set(f, b);
       }
       try { if (!b.prepare("SELECT 1 FROM voto_minuto_uf LIMIT 1").get()) continue; } catch { continue; }
-      out.push({ nome: f, turno: Number(f[0]), uf: f.slice(3, 5), db: b });
+      let apos17Brasilia = false;
+      try { apos17Brasilia = b.prepare("SELECT valor FROM meta WHERE chave = 'apos_17h'").get()?.valor === "brasilia"; } catch {}
+      out.push({ nome: f, turno: Number(f[0]), uf: f.slice(3, 5), apos17Brasilia, db: b });
     }
     return out;
   };
   return {
     disponiveis: () => bases().map(b => ({ turno: b.turno, uf: b.uf })),
+    // params pode ser uma função da base ({turno, uf, apos17Brasilia}) para usar limites por fuso.
     // Roda a mesma consulta em cada base que casar com o filtro e junta as linhas.
     consultar(sql, params = [], filtro = {}) {
       const rows = [];
       for (const b of bases()) {
         if (filtro.turno && b.turno !== Number(filtro.turno)) continue;
         if (filtro.uf && b.uf !== filtro.uf) continue;
-        rows.push(...b.db.prepare(sql).all(...params));
+        rows.push(...b.db.prepare(sql).all(...(typeof params === "function" ? params(b) : params)));
       }
       return rows;
     },
