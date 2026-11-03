@@ -13,6 +13,7 @@ Adicione `https://urnas2026.duckdns.org/mcp` como conector personalizado no Clau
 | `buscar_candidatos` | Busca por nome, com cargo, partido, UF, situação e votos |
 | `detalhar_candidato` | Ficha do candidato: perfil, votos por turno e bens declarados |
 | `valores_dimensao` | Valores possíveis de uma dimensão, para montar filtros |
+| `horarios_urnas` | Horários das urnas pelos logs oficiais: abertura, votos ao longo do dia e encerramento, por UF, município ou seção |
 | `saldo` | Créditos restantes e cota grátis do dia |
 
 ## Use in English

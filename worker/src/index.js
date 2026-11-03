@@ -8,6 +8,8 @@ import {
 } from "./core.js";
 import { SITE_HTML } from "./site.js";
 import { paginaEstados, paginaUF, paginaCandidato, sitemap } from "./paginas.js";
+import { resumoUrnas, curvaUrnas, municipiosUrnas, secoesUrnas } from "./urnas.js";
+import { paginaUrnas } from "./pagina_urnas.js";
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -87,6 +89,19 @@ const FERRAMENTAS = [
     inputSchema: { type: "object", properties: { dimensao: { type: "string", enum: Object.keys(DIMENSOES) }, uf: { type: "string" } }, required: ["dimensao"] },
   },
   {
+    name: "horarios_urnas",
+    description: "Horários das urnas das eleições 2026, tirados dos logs oficiais do TSE (não dizem em quem se votou). modo=resumo: por UF, seções, encerramento médio, seções encerradas após 17h30/18h/19h e votos depois das 17h e 19h. modo=curva: votos por intervalo de tempo ao longo do dia. modo=municipios (exige uf): o mesmo por município. modo=secoes (exige uf; cd_municipio opcional): seção por seção, com abertura, primeiro e último voto e encerramento.",
+    inputSchema: { type: "object", properties: {
+      modo: { type: "string", enum: ["resumo", "curva", "municipios", "secoes"] },
+      turno: { type: "integer", enum: [1, 2] },
+      uf: { type: "string", description: "Sigla da UF, ex.: SP. ZZ = exterior." },
+      cd_municipio: { type: "string", description: "Código TSE do município (modo secoes)." },
+      intervalo: { type: "integer", description: "Minutos por ponto na curva: 1, 5, 10, 15, 30 ou 60." },
+      ordem: { type: "string", enum: ["encerramento", "votos_apos_17h"], description: "Ordem das seções." },
+      limite: { type: "integer", description: "Máximo de seções (até 1000)." },
+    }, required: ["modo"] },
+  },
+  {
     name: "saldo",
     description: "Mostra o saldo de créditos da chave usada e a cota grátis. Sem custo.",
     inputSchema: { type: "object", properties: {} },
@@ -109,6 +124,12 @@ async function chamarFerramenta(env, ctx, nome, args, quem) {
     }
     case "valores_dimensao":
       return { dimensao: args.dimensao, valores: await valoresDimensao(env.DB, args.dimensao, args.uf) };
+    case "horarios_urnas": {
+      const f = { resumo: resumoUrnas, curva: curvaUrnas, municipios: municipiosUrnas, secoes: secoesUrnas }[args.modo];
+      if (!f) throw new ErroApi(400, "modo deve ser resumo, curva, municipios ou secoes.");
+      const r = await f(env, args);
+      return { ...r, cobranca: await cobrar(env.DB, { ...quem, custo: 1 }) };
+    }
     case "saldo":
       return quem.chave ? { ...(await saldo(env.DB, quem.chave, env.FETCH || fetch)), cota_gratis_diaria: COTA_GRATIS } : { mensagem: "Sem chave: usando a cota grátis diária.", cota_gratis_diaria: COTA_GRATIS };
     default:
@@ -167,7 +188,7 @@ const LLMS_TXT = o => `# Eleições 2026 em dados
 
 ## MCP (Streamable HTTP)
 - Endpoint: ${o}/mcp
-- Ferramentas: explorar (tabela dinâmica com filtros, linhas e colunas), buscar_candidatos, detalhar_candidato, valores_dimensao, saldo
+- Ferramentas: explorar (tabela dinâmica com filtros, linhas e colunas), buscar_candidatos, detalhar_candidato, valores_dimensao, horarios_urnas (abertura, votos por hora e encerramento das urnas, dos logs oficiais), saldo
 - 60 consultas grátis por dia. Depois, 1 crédito por consulta. Chave via cabeçalho "Authorization: Bearer CHAVE" ou ?chave=CHAVE
 - Créditos: comprados em bitcoin (Lightning) em ${o}/ sem cadastro
 
@@ -176,6 +197,10 @@ const LLMS_TXT = o => `# Eleições 2026 em dados
 - POST ${o}/api/explorar: {"medida":"votos","linhas":"uf","colunas":"partido","filtros":{"turno":["1"],"cargo":["PRESIDENTE"]}}
 - GET ${o}/api/candidatos?q=NOME
 - GET ${o}/api/candidato/SQ_CANDIDATO
+- GET ${o}/api/urnas (resumo por UF), /api/urnas/curva?turno=2&uf=SP, /api/urnas/municipios?uf=SP, /api/urnas/secoes?uf=SP&cd_municipio=71072 (&exportar=1 para CSV)
+
+## Páginas
+- ${o}/estados, ${o}/uf/SP, ${o}/candidato/SQ_CANDIDATO, ${o}/urnas
 
 ## Fonte
 Tribunal Superior Eleitoral, Portal de Dados Abertos. Site independente.
@@ -227,6 +252,20 @@ export default {
         return json({ ...piv, cobranca });
       }
       if (p === "/api/valores") return json({ valores: await valoresDimensao(env.DB, url.searchParams.get("dimensao"), url.searchParams.get("uf")) });
+      if (p === "/urnas") { await registrar(env.DB, "pagina", quem.ip); return await paginaUrnas(env, url.origin, url.searchParams); }
+      if (p.startsWith("/api/urnas")) {
+        const q = Object.fromEntries(url.searchParams), modo = p.split("/")[3] || "resumo";
+        const f = { resumo: resumoUrnas, curva: curvaUrnas, municipios: municipiosUrnas, secoes: secoesUrnas }[modo];
+        if (!f) throw new ErroApi(404, "Use /api/urnas, /api/urnas/curva, /api/urnas/municipios ou /api/urnas/secoes.");
+        const r = await f(env, q);
+        if (modo === "secoes" && q.exportar) {
+          await cobrar(env.DB, { ...quem, site: false, custo: custoConsulta(true, r.linhas.length) }); await registrar(env.DB, "export", quem.ip);
+          const cols = ["turno", "uf", "cd_municipio", "zona", "secao", "abertura", "primeiro_voto", "ultimo_voto", "encerramento", "votos", "votos_apos_17h", "votos_apos_19h"];
+          return new Response([cols.join(";"), ...r.linhas.map(l => cols.map(c => l[c] ?? "").join(";"))].join("\n"),
+            { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="secoes-${r.uf}.csv"`, ...CORS } });
+        }
+        return json({ ...r, cobranca: await cobrar(env.DB, { ...quem, custo: 1 }) });
+      }
       if (p === "/api/candidatos") {
         const r = await buscarCandidatos(env.DB, Object.fromEntries(url.searchParams));
         return json({ candidatos: r, cobranca: await cobrar(env.DB, { ...quem, custo: 1 }) });

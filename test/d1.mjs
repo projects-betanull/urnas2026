@@ -16,3 +16,38 @@ export function abrirD1(caminho) {
     },
   };
 }
+
+// Bases de horários das urnas (uma por turno e UF, geradas por etl/logs.py). Só leitura.
+// Uma base só entra quando está completa (voto_minuto_uf é gravada no fim do processamento).
+import { readdirSync } from "node:fs";
+export function abrirUrnas(pasta) {
+  const abertas = new Map();
+  const bases = () => {
+    let nomes = [];
+    try { nomes = readdirSync(pasta).filter(f => /^[12]t_[A-Z]{2}_tempos\.db$/.test(f)); } catch {}
+    const out = [];
+    for (const f of nomes) {
+      let b = abertas.get(f);
+      if (!b) {
+        try { b = new DatabaseSync(pasta + "/" + f, { readOnly: true }); } catch { continue; }
+        abertas.set(f, b);
+      }
+      try { if (!b.prepare("SELECT 1 FROM voto_minuto_uf LIMIT 1").get()) continue; } catch { continue; }
+      out.push({ nome: f, turno: Number(f[0]), uf: f.slice(3, 5), db: b });
+    }
+    return out;
+  };
+  return {
+    disponiveis: () => bases().map(b => ({ turno: b.turno, uf: b.uf })),
+    // Roda a mesma consulta em cada base que casar com o filtro e junta as linhas.
+    consultar(sql, params = [], filtro = {}) {
+      const rows = [];
+      for (const b of bases()) {
+        if (filtro.turno && b.turno !== Number(filtro.turno)) continue;
+        if (filtro.uf && b.uf !== filtro.uf) continue;
+        rows.push(...b.db.prepare(sql).all(...params));
+      }
+      return rows;
+    },
+  };
+}

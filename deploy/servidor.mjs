@@ -3,8 +3,8 @@ import http from "node:http";
 import { readFileSync } from "node:fs";
 const VERSAO = (() => { try { return readFileSync("/srv/eleicoes/versao", "utf8").trim(); } catch { return ""; } })();
 import worker from "../worker/src/index.js";
-import { abrirD1 } from "../test/d1.mjs";
-const env = { DB: abrirD1(process.env.DB_PATH || "/srv/eleicoes/dados.db"), LN_ADDRESS: process.env.LN_ADDRESS || "lizard43@coinos.io", VERSAO };
+import { abrirD1, abrirUrnas } from "../test/d1.mjs";
+const env = { DB: abrirD1(process.env.DB_PATH || "/srv/eleicoes/dados.db"), LN_ADDRESS: process.env.LN_ADDRESS || "lizard43@coinos.io", VERSAO, URNAS: abrirUrnas(process.env.LOGS_DIR || "/srv/eleicoes/logs") };
 http.createServer(async (req, res) => {
   try {
     const chunks = []; for await (const c of req) chunks.push(c);

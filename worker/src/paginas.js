@@ -23,10 +23,11 @@ header a{color:var(--ink);text-decoration:none;font-weight:700}a{color:var(--acc
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}td.r,th.r{text-align:right}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px}.k{display:flex;gap:14px;flex-wrap:wrap}.k div b{display:block;font-size:20px}
 .tw{overflow-x:auto}footer{max-width:1000px;margin:0 auto;padding:20px 18px 40px;color:var(--muted);font-size:13px}</style></head><body>
-<header><div><a href="/">Eleições 2026 em dados</a> · <a href="/estados" style="font-weight:400">Estados</a> · <a href="/#mcp" style="font-weight:400">Usar com IA (MCP)</a></div></header>
+<header><div><a href="/">Eleições 2026 em dados</a> · <a href="/estados" style="font-weight:400">Estados</a> · <a href="/urnas" style="font-weight:400">Horários das urnas</a> · <a href="/#mcp" style="font-weight:400">Usar com IA (MCP)</a></div></header>
 <main>${corpo}</main>
 <footer>Fonte: Tribunal Superior Eleitoral, Portal de Dados Abertos (resultados e candidaturas de 2026). Site independente, sem ligação com o TSE. Para cruzar, filtrar e exportar estes dados, use o <a href="/">explorador</a> ou o servidor MCP em <code>${origem}/mcp</code>.</footer></body></html>`;
 }
+export const paginaBase = o => resp(pagina(o));
 const resp = html => new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "max-age=3600" } });
 const naoAchou = origem => new Response(pagina({ titulo: "Página não encontrada", descricao: "", canonico: "/", origem, corpo: `<h1>Página não encontrada</h1><p><a href="/estados">Ver estados</a></p>` }), { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
 
@@ -84,7 +85,7 @@ let cacheMapa = null;
 export async function sitemap(db, origem) {
   if (!cacheMapa || Date.now() - cacheMapa.t > 864e5) {
     const cs = (await db.prepare("SELECT sq_candidato, MAX(nome_urna) nome_urna FROM candidato GROUP BY sq_candidato").all()).results;
-    cacheMapa = { t: Date.now(), urls: ["/", "/estados", "/llms.txt", ...LISTA_UFS.map(u => `/uf/${u}`), ...cs.map(linkCandidato)] };
+    cacheMapa = { t: Date.now(), urls: ["/", "/estados", "/urnas", "/urnas?turno=1", "/llms.txt", ...LISTA_UFS.map(u => `/uf/${u}`), ...cs.map(linkCandidato)] };
   }
   return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${cacheMapa.urls.map(u => `<url><loc>${origem}${u}</loc></url>`).join("")}</urlset>\n`, { headers: { "content-type": "application/xml", "cache-control": "max-age=3600" } });
 }
