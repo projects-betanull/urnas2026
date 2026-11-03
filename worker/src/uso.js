@@ -61,7 +61,6 @@ ${tabela(["Ferramenta", "Chamadas"], extras("mcp_ferramenta:"))}
 ${tabela(["Cliente", "Conexões"], extras("mcp_cliente:"))}
 <h2>Pagamentos</h2>
 ${tabela(["Dia", "Situação", "Pedidos", "Sats"], r.pagamentos.map(p => [p.dia, p.status, p.q, p.sats || 0]))}
-<p><a href="?k=" id="bk">Baixar backup dos saldos</a></p><script>document.getElementById("bk").href="/painel/backup"+location.search</script>
 <p><small>Visitantes e usuários contados por hash diário do IP; nenhum IP é guardado. Atualize a página para ver números novos.</small></p></body></html>`;
 }
 
