@@ -1,0 +1,11 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "org.duckdns.urnas2026/eleicoes-2026",
+  "title": "Eleições 2026 em dados (TSE)",
+  "description": "Brazil 2026 election results (TSE): votes by candidate and city, parties, offices, assets.",
+  "version": "1.0.0",
+  "websiteUrl": "https://urnas2026.duckdns.org/",
+  "remotes": [
+    { "type": "streamable-http", "url": "https://urnas2026.duckdns.org/mcp" }
+  ]
+}

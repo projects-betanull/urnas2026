@@ -1,0 +1,6 @@
+*.db
+*.db-*
+__pycache__/
+node_modules/
+test/exemplo/
+sql/

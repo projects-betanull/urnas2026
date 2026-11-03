@@ -1,0 +1,12 @@
+name = "eleicoes2026"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "eleicoes2026"
+database_id = "PREENCHER_APOS_CRIAR"
+
+[vars]
+# Endereço Lightning do dono (nome@provedor). Precisa suportar LUD-21 (verify) para confirmar pagamentos sozinho.
+LN_ADDRESS = "lizard43@coinos.io"

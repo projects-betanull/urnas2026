@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eleições 2026 em dados: explore votos, partidos e candidatos</title>
+<meta name="description" content="Explore os resultados oficiais do TSE das eleições 2026 (1º e 2º turno): tabela dinâmica, filtros, gráficos, drill-down por UF e município, e servidor MCP para IA.">
+<link rel="canonical" href="https://urnas2026.duckdns.org/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Eleições 2026 em dados">
+<meta property="og:description" content="Resultados oficiais do TSE de 2026, 1º e 2º turno, prontos para filtrar, cruzar e consultar por IA (MCP). Sem baixar arquivos.">
+<meta property="og:url" content="https://urnas2026.duckdns.org/">
+<meta property="og:locale" content="pt_BR">
+<meta name="twitter:card" content="summary">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#16191d;--muted:#5b6470;--line:#e1e4e8;--acc:#0b6e4f;--acc2:#e8f3ef;--warn:#b42318;
+--s1:#0b6e4f;--s2:#2f6fb3;--s3:#c2410c;--s4:#7c3aed;--s5:#b8860b;--s6:#0e7490;--s7:#be185d;--s8:#4d7c0f;--s9:#9a3412;--s10:#475569;--s11:#1d4ed8;--s12:#a16207;--s13:#94a3b8}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1214;--card:#171b1f;--ink:#e8eaed;--muted:#9aa3ad;--line:#2a3036;--acc:#34c48e;--acc2:#16302a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Source Sans 3",system-ui,sans-serif}
+header{background:var(--card);border-bottom:1px solid var(--line)}
+.top{max-width:1280px;margin:0 auto;padding:14px 18px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.top h1{font-size:20px;margin:0;flex:1;min-width:220px}.top h1 small{display:block;font-size:13px;font-weight:400;color:var(--muted)}
+.saldo{font:600 13px "Source Code Pro",monospace;color:var(--muted)}
+main{max-width:1280px;margin:0 auto;padding:16px 18px 50px;display:grid;grid-template-columns:300px 1fr;gap:16px}
+main>*{min-width:0}
+@media(max-width:900px){main{grid-template-columns:minmax(0,1fr)}main>aside{order:2}.bar{grid-template-columns:96px 1fr 78px}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+h2{font-size:15px;margin:0 0 10px}label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px;font-weight:600}
+select,input{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);font:inherit}
+button{font:600 14px inherit;font-family:inherit;border:0;border-radius:7px;padding:8px 12px;background:var(--acc);color:#fff;cursor:pointer}
+button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}button:disabled{opacity:.5;cursor:default}
+.seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}.seg button{flex:1;border-radius:0;background:transparent;color:var(--ink);font-weight:600}
+.seg button.on{background:var(--acc);color:#fff}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.chip{background:var(--acc2);color:var(--ink);border-radius:99px;padding:3px 10px;font-size:13px;display:flex;gap:6px;align-items:center}
+.chip b{cursor:pointer;color:var(--muted)}
+.trilha{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:14px;margin-bottom:10px}.trilha a{color:var(--acc);cursor:pointer;text-decoration:underline}
+.trilha span.sep{color:var(--muted)}
+.kpis{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-bottom:10px}.kpis b{display:block;font:600 19px "Source Code Pro",monospace;color:var(--ink)}
+.bars{display:flex;flex-direction:column;gap:5px;margin:6px 0 4px}
+.bar{display:grid;grid-template-columns:minmax(90px,200px) 1fr 92px;gap:8px;align-items:center;font-size:13px;cursor:pointer}
+.bar .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar .v{text-align:right;font-family:"Source Code Pro",monospace}
+.track{height:16px;display:flex;border-radius:3px;overflow:hidden;background:var(--bg)}.track i{display:block;height:100%}
+.bar:hover .n{color:var(--acc);text-decoration:underline}
+.leg{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--muted);margin:6px 0}.leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.tw{overflow:auto;max-height:520px;border:1px solid var(--line);border-radius:8px;margin-top:12px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px 9px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right}
+th{position:sticky;top:0;background:var(--card);font-weight:600;color:var(--muted);cursor:pointer;z-index:1}
+td:first-child,th:first-child{text-align:left;position:sticky;left:0;background:var(--card)}
+td.num{font-family:"Source Code Pro",monospace}tr.clic td:first-child{color:var(--acc);cursor:pointer;text-decoration:underline}
+.msg{padding:10px;border-radius:8px;background:var(--acc2);font-size:14px;margin-bottom:10px}.msg.err{background:#fde8e6;color:var(--warn)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.muted{color:var(--muted);font-size:13px}
+code{font-family:"Source Code Pro",monospace;font-size:12.5px;background:var(--bg);padding:2px 5px;border-radius:4px;word-break:break-all}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);max-width:720px;width:94vw;padding:18px}
+dialog::backdrop{background:#0008}.qr{background:#fff;padding:10px;display:inline-block;border-radius:8px}
+.pkgs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0}.pkg{border:1px solid var(--line);border-radius:8px;padding:10px;cursor:pointer}
+.pkg:hover{border-color:var(--acc)}.pkg b{display:block;font-size:16px}
+.vals{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:7px;padding:4px 8px;margin-top:6px;font-size:13px}.vals label{display:flex;gap:6px;margin:3px 0;color:var(--ink);font-weight:400}
+.vals input{width:auto}
+@media(max-width:900px){.bar{grid-template-columns:92px 1fr 76px}}
+</style>
+</head>
+<body>
+<header><div class="top">
+  <h1>Eleições 2026 em dados<small>Resultados oficiais do TSE, 1º e 2º turno. Filtre, cruze e aprofunde.</small></h1>
+  <span class="saldo" id="saldo"></span>
+  <button class="sec" id="btnMcp">Usar com IA (MCP)</button>
+  <button id="btnCreditos">Créditos ⚡</button>
+</div></header>
+<main>
+<aside class="card">
+  <h2>Montar a análise</h2>
+  <label>Turno</label>
+  <div class="seg" id="segTurno"><button data-t="1" class="on">1º</button><button data-t="2">2º</button><button data-t="">Ambos</button></div>
+  <label for="medida">Medir</label><select id="medida"></select>
+  <label for="linhas">Linhas</label><select id="linhas"></select>
+  <label for="colunas">Colunas (cruzar com)</label><select id="colunas"></select>
+  <label for="busca">Nome do candidato contém</label><input id="busca" placeholder="ex.: SILVA">
+  <label>Filtros</label>
+  <div class="row"><select id="fDim" style="flex:1"></select><button class="sec" id="fAdd">+</button></div>
+  <div id="fBox"></div>
+  <div class="chips" id="chips"></div>
+  <label for="ordem">Ordenar</label><select id="ordem"><option value="desc">Maior primeiro</option><option value="asc">Menor primeiro</option><option value="nome">Nome (A-Z)</option></select>
+  <label for="limite">Mostrar</label><select id="limite"><option>20</option><option selected>50</option><option>100</option><option>500</option></select>
+  <div class="row" style="margin-top:14px"><button id="exportar" class="sec">Exportar CSV</button></div>
+  <p class="muted">Clique em uma linha para descer um nível (UF → município, cargo → partido → candidato). Use a trilha acima do gráfico para voltar.</p>
+</aside>
+<section class="card">
+  <div id="aviso"></div>
+  <div class="trilha" id="trilha"></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="leg" id="leg"></div>
+  <div class="bars" id="bars"></div>
+  <div class="tw"><table id="tab"></table></div>
+  <p class="muted" id="rodape"></p>
+</section>
+</main>
+<section class="sobre" style="max-width:1280px;margin:0 auto;padding:0 18px 40px;color:var(--muted)">
+<h2 style="color:var(--ink);font-size:17px">Sobre este site</h2>
+<p>Os dados abertos do TSE das eleições gerais de 2026 (presidente, governador, senador, deputado federal, estadual e distrital) chegam em arquivos CSV grandes, separados por estado e codificados em latin-1. Aqui eles já estão carregados e indexados: votos por candidato em cada município, partido, cargo, situação (eleito, 2º turno, não eleito), gênero, instrução, ocupação, cor/raça e patrimônio declarado.</p>
+<p>Monte tabelas dinâmicas, cruze duas dimensões, clique para descer de UF para município ou de cargo para partido e candidato, e exporte em CSV. Navegar é livre.</p>
+<h3 style="color:var(--ink);font-size:15px">Para IA e desenvolvedores</h3>
+<p>Servidor MCP aberto (Streamable HTTP) em <code>https://urnas2026.duckdns.org/mcp</code>, com 60 consultas grátis por dia, e API JSON em <code>/api/</code>. Funciona no Claude, no Cursor e em qualquer cliente MCP. Créditos extras são pagos em bitcoin pela Lightning, sem cadastro. Veja também <a href="/llms.txt">/llms.txt</a>.</p>
+<p>Fonte: Tribunal Superior Eleitoral, Portal de Dados Abertos (dadosabertos.tse.jus.br). Site independente, sem ligação com o TSE.</p>
+</section>
+
+<dialog id="dlgCand"><div id="candBody"></div><div class="row" style="margin-top:12px"><button class="sec" onclick="dlgCand.close()">Fechar</button></div></dialog>
+<dialog id="dlgCred">
+  <h2>Créditos em bitcoin (Lightning)</h2>
+  <p class="muted">Sem cadastro: você paga e recebe uma <b>chave</b>, que já vem com o saldo. Guarde a chave: ela vale no site e no servidor MCP. Navegar no site é livre. Os créditos valem para exportar dados (1 crédito a cada 500 linhas) e para consultas pela IA via MCP (1 crédito por consulta, com <span id="cotaTxt"></span> grátis por dia), incluindo dados por seção e por horário de encerramento.</p>
+  <div class="pkgs" id="pkgs"></div>
+  <div id="pag"></div>
+  <label for="minhaChave">Já tem uma chave? Cole aqui</label>
+  <div class="row"><input id="minhaChave" style="flex:1" placeholder="tse_..."><button class="sec" id="salvarChave">Usar</button></div>
+  <div class="row" style="margin-top:12px"><button class="sec" onclick="dlgCred.close()">Fechar</button></div>
+</dialog>
+<dialog id="dlgMcp">
+  <h2>Consulte com IA via MCP</h2>
+  <p>Adicione este servidor no Claude (Configurações → Conectores → Adicionar conector personalizado), no Cursor ou em qualquer cliente MCP com HTTP:</p>
+  <p><code id="mcpUrl"></code></p>
+  <p class="muted">Sem chave, vale a cota grátis diária. Com chave, envie o cabeçalho <code>Authorization: Bearer SUA_CHAVE</code> ou acrescente <code>?chave=SUA_CHAVE</code> ao endereço.</p>
+  <p class="muted">Ferramentas: <code>explorar</code> (tabela dinâmica com filtros), <code>buscar_candidatos</code>, <code>detalhar_candidato</code>, <code>valores_dimensao</code> e <code>saldo</code>.</p>
+  <div class="row"><button class="sec" onclick="dlgMcp.close()">Fechar</button></div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmt = v => v == null ? "–" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+const CORES = Array.from({ length: 13 }, (_, i) => `var(--s${i + 1})`);
+let META = null;
+const st = { turno: "1", medida: "votos", linhas: "uf", colunas: "", filtros: {}, busca: "", ordem: "desc", limite: 50, pilha: [] };
+const lerChave = () => { try { return localStorage.getItem("tse.chave") || ""; } catch { return ""; } };
+const gravarChave = c => { try { localStorage.setItem("tse.chave", c); } catch {} };
+
+async function api(path, opts = {}) {
+  const h = { "content-type": "application/json", "x-origem": "site" }; const k = lerChave(); if (k) h["x-chave"] = k;
+  const r = await fetch(path, { ...opts, headers: { ...h, ...(opts.headers || {}) } });
+  if (!r.ok) { let m = "Erro " + r.status; try { m = (await r.json()).erro || m; } catch {} const e = new Error(m); e.status = r.status; throw e; }
+  return r;
+}
+function opcoes(sel, obj, vazio) { sel.innerHTML = (vazio ? `<option value="">${vazio}</option>` : "") + Object.entries(obj).map(([k, v]) => `<option value="${k}">${v}</option>`).join(""); }
+function aviso(t, err) { $("#aviso").innerHTML = t ? `<div class="msg ${err ? "err" : ""}">${t}</div>` : ""; }
+
+function params() {
+  const f = { ...st.filtros }; if (st.turno) f.turno = [st.turno];
+  return { medida: st.medida, linhas: st.linhas, colunas: st.colunas || null, filtros: f, busca: st.busca || undefined, ordem: st.ordem, limite: st.limite };
+}
+
+async function carregar() {
+  $("#segTurno").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.t === st.turno));
+  $("#medida").value = st.medida; $("#linhas").value = st.linhas; $("#colunas").value = st.colunas;
+  desenharChips(); desenharTrilha();
+  aviso(""); $("#bars").innerHTML = '<span class="muted">Carregando…</span>';
+  try {
+    const r = await (await api("/api/explorar", { method: "POST", body: JSON.stringify(params()) })).json();
+    desenhar(r); mostrarSaldo(r.cobranca);
+  } catch (e) {
+    $("#bars").innerHTML = ""; $("#tab").innerHTML = "";
+    aviso(e.status === 402 ? `${e.message} <a href="#" onclick="abrirCreditos();return false">Comprar créditos</a>` : e.message, true);
+  }
+}
+
+function proximoNivel(dim) {
+  for (const h of META.hierarquias) { const i = h.indexOf(dim); if (i >= 0 && i < h.length - 1) return h[i + 1]; }
+  return null;
+}
+function descer(valor) {
+  if (st.linhas === "candidato") return abrirCandidatoPorNome(valor);
+  const prox = proximoNivel(st.linhas);
+  st.pilha.push({ linhas: st.linhas, filtros: JSON.parse(JSON.stringify(st.filtros)), rotulo: valor });
+  st.filtros[st.linhas] = [valor];
+  st.linhas = prox || (st.linhas === "candidato" ? "municipio" : "candidato");
+  if (st.colunas === st.linhas) st.colunas = "";
+  carregar();
+}
+function voltarPara(i) {
+  const alvo = st.pilha[i]; st.pilha = st.pilha.slice(0, i);
+  st.linhas = alvo.linhas; st.filtros = alvo.filtros; carregar();
+}
+function desenharTrilha() {
+  const n = st.pilha.length;
+  if (!n) { $("#trilha").innerHTML = ""; return; }
+  const itens = ['<a onclick="voltarPara(0)">Início</a>'].concat(st.pilha.map((p, i) =>
+    i < n - 1 ? `<a onclick="voltarPara(${i + 1})">${p.rotulo}</a>` : `<b>${p.rotulo}</b>`));
+  $("#trilha").innerHTML = itens.join(' <span class="sep">›</span> ') + ` <span class="sep">›</span> <span class="muted">por ${META.dimensoes[st.linhas]}</span>`;
+}
+function desenharChips() {
+  $("#chips").innerHTML = Object.entries(st.filtros).flatMap(([d, vs]) => vs.map(v => `<span class="chip">${META.dimensoes[d]}: ${v} <b onclick="tirar('${d}','${String(v).replace(/'/g, "\\'")}')">×</b></span>`)).join("")
+    + (st.busca ? `<span class="chip">Nome: ${st.busca} <b onclick="st.busca='';$('#busca').value='';carregar()">×</b></span>` : "");
+}
+function tirar(d, v) { st.filtros[d] = (st.filtros[d] || []).filter(x => x !== v); if (!st.filtros[d].length) delete st.filtros[d]; carregar(); }
+
+function desenhar(r) {
+  const med = META.medidas[r.medida];
+  $("#kpis").innerHTML = `<div>${med} no total<b>${fmt(r.total_geral)}</b></div><div>${META.dimensoes[r.linhas_dim]}<b>${fmt(r.total_linhas)}</b></div>` +
+    (r.cobranca && r.cobranca.modo !== "site" ? `<div>${r.cobranca.modo === "gratis" ? "Cota grátis restante hoje" : "Créditos restantes"}<b>${fmt(r.cobranca.restante)}</b></div>` : "");
+  const cols = r.colunas; const max = Math.max(1, ...r.linhas.map(l => l.total));
+  const corDe = c => CORES[cols.indexOf(c) % CORES.length];
+  $("#leg").innerHTML = r.colunas_dim ? cols.map(c => `<span><i style="background:${corDe(c)}"></i>${c}</span>`).join("") : "";
+  const top = r.linhas.slice(0, 25);
+  $("#bars").innerHTML = top.map(l => `<div class="bar" data-v="${encodeURIComponent(l.chave)}"><span class="n" title="${l.chave}">${l.chave}</span><span class="track">${
+    r.colunas_dim ? cols.map(c => `<i title="${c}: ${fmt(l.valores[c])}" style="width:${(l.valores[c] / max) * 100}%;background:${corDe(c)}"></i>`).join("") : `<i style="width:${(l.total / max) * 100}%;background:var(--s1)"></i>`
+  }</span><span class="v">${fmt(l.total)}</span></div>`).join("") || '<span class="muted">Nenhum resultado com esses filtros.</span>';
+  document.querySelectorAll(".bar").forEach(b => b.onclick = () => descer(decodeURIComponent(b.dataset.v)));
+  const cab = `<tr><th>${META.dimensoes[r.linhas_dim]}</th>${r.colunas_dim ? cols.map(c => `<th>${c}</th>`).join("") : ""}<th>${r.medida === "patrimonio_medio" ? med : "Total"}</th><th>%</th></tr>`;
+  const tg = r.total_geral || 1;
+  $("#tab").innerHTML = cab + r.linhas.map(l => `<tr class="clic"><td data-v="${encodeURIComponent(l.chave)}">${l.chave}</td>${
+    r.colunas_dim ? cols.map(c => { const v = l.valores[c]; const a = max ? Math.min(.55, v / max) : 0; return `<td class="num" style="background:color-mix(in srgb, var(--acc) ${a * 100}%, transparent)">${fmt(v)}</td>`; }).join("") : ""
+  }<td class="num"><b>${fmt(l.total)}</b></td><td class="num">${r.total_geral ? (l.total / tg * 100).toFixed(1) + "%" : "–"}</td></tr>`).join("");
+  document.querySelectorAll("#tab td[data-v]").forEach(td => td.onclick = () => descer(decodeURIComponent(td.dataset.v)));
+  $("#rodape").textContent = r.total_linhas > r.linhas.length ? `Mostrando ${r.linhas.length} de ${fmt(r.total_linhas)} linhas. Aumente "Mostrar" ou exporte o CSV.` : "";
+}
+
+async function abrirCandidatoPorNome(rotulo) {
+  try {
+    const m = String(rotulo).match(/^(.*) \(([^/]*)\/([^)]*)\)$/);
+    const q = new URLSearchParams({ nome: m ? m[1] : rotulo, limite: 5 });
+    if (m) { q.set("partido", m[2]); q.set("uf", m[3]); }
+    if (st.turno) q.set("turno", st.turno);
+    const c = (await (await api("/api/candidatos?" + q)).json()).candidatos;
+    if (!c.length) return;
+    const d = await (await api("/api/candidato/" + c[0].sq_candidato)).json(); mostrarSaldo(d.cobranca);
+    const p = d.candidato[0];
+    $("#candBody").innerHTML = `<h2>${p.nome_urna} <span class="muted">(${p.partido} · ${p.cargo} · ${p.uf})</span></h2>
+      <p class="muted">${[p.genero, p.cor_raca, p.instrucao, p.ocupacao].filter(Boolean).join(" · ")}</p>
+      <table><tr><th>Turno</th><th>Situação</th><th>Votos</th></tr>${d.candidato.map(t => `<tr><td>${t.turno}º</td><td>${t.situacao || "–"}</td><td class="num">${fmt(t.votos)}</td></tr>`).join("")}</table>
+      <h2 style="margin-top:14px">Patrimônio declarado: R$ ${fmt(d.patrimonio_total)}</h2>
+      <table><tr><th>Tipo</th><th>Valor (R$)</th></tr>${d.bens.map(b => `<tr><td>${b.tipo || "–"}</td><td class="num">${fmt(b.valor)}</td></tr>`).join("") || '<tr><td colspan="2">Nenhum bem declarado.</td></tr>'}</table>
+      <h2 style="margin-top:14px">Municípios com mais votos</h2>
+      <div class="tw" style="max-height:260px"><table><tr><th>Município</th><th>UF</th><th>Turno</th><th>Votos</th></tr>${d.votos_por_municipio.slice(0, 100).map(m => `<tr><td>${m.municipio}</td><td>${m.uf}</td><td>${m.turno}º</td><td class="num">${fmt(m.votos)}</td></tr>`).join("")}</table></div>`;
+    dlgCand.showModal();
+  } catch (e) { aviso(e.message, true); }
+}
+
+// Filtros: escolher dimensão e marcar valores
+$("#fAdd").onclick = async () => {
+  const d = $("#fDim").value; const uf = (st.filtros.uf || [])[0];
+  try {
+    const vs = (await (await api(`/api/valores?dimensao=${d}${uf ? "&uf=" + uf : ""}`)).json()).valores;
+    const marc = new Set(st.filtros[d] || []);
+    $("#fBox").innerHTML = `<input id="fBusca" placeholder="Procurar em ${META.dimensoes[d]}…" style="margin-top:6px"><div class="vals">${vs.map(v => `<label><input type="checkbox" value="${String(v).replace(/"/g, "&quot;")}" ${marc.has(v) ? "checked" : ""}>${v}</label>`).join("")}</div><div class="row" style="margin-top:6px"><button id="fOk">Aplicar</button><button class="sec" onclick="$('#fBox').innerHTML=''">Cancelar</button></div>`;
+    $("#fBusca").oninput = e => { const t = e.target.value.toUpperCase(); document.querySelectorAll(".vals label").forEach(l => l.style.display = l.textContent.toUpperCase().includes(t) ? "" : "none"); };
+    $("#fOk").onclick = () => { const sel = [...document.querySelectorAll(".vals input:checked")].map(i => i.value); if (sel.length) st.filtros[d] = sel; else delete st.filtros[d]; $("#fBox").innerHTML = ""; carregar(); };
+  } catch (e) { aviso(e.message, true); }
+};
+
+$("#exportar").onclick = async () => {
+  try {
+    const r = await api("/api/explorar", { method: "POST", body: JSON.stringify({ ...params(), limite: 50000, exportar: true }) });
+    const url = URL.createObjectURL(await r.blob()); const a = document.createElement("a"); a.href = url; a.download = "eleicoes2026.csv"; a.click(); URL.revokeObjectURL(url);
+    atualizarSaldo();
+  } catch (e) { aviso(e.message, true); }
+};
+
+// Créditos
+function mostrarSaldo(c) { if (!c || c.modo === "site") return; $("#saldo").textContent = c.modo === "gratis" ? `Grátis hoje: ${c.restante}` : `⚡ ${fmt(c.restante)} créditos`; }
+async function atualizarSaldo() { if (!lerChave()) return; try { const s = await (await api("/api/saldo")).json(); $("#saldo").textContent = `⚡ ${fmt(s.creditos)} créditos`; } catch {} }
+function abrirCreditos() {
+  $("#cotaTxt").textContent = META.cota_gratis_diaria; $("#minhaChave").value = lerChave();
+  $("#pkgs").innerHTML = META.pagamentos_ativos ? Object.entries(META.pacotes).map(([k, p]) => `<div class="pkg" data-k="${k}"><b>${p.rotulo}</b>${fmt(p.sats)} sats${p.reais ? `<br><span class="muted">≈ R$ ${p.reais.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} hoje</span>` : ""}</div>`).join("") : '<p class="muted">Pagamentos em breve.</p>';
+  document.querySelectorAll(".pkg").forEach(e => e.onclick = () => comprar(e.dataset.k));
+  $("#pag").innerHTML = ""; dlgCred.showModal();
+}
+async function comprar(pacote) {
+  $("#pag").innerHTML = '<p class="muted">Gerando cobrança…</p>';
+  try {
+    const r = await (await api("/api/creditos", { method: "POST", body: JSON.stringify({ pacote }) })).json();
+    if (r.chave) gravarChave(r.chave);
+    $("#pag").innerHTML = `${r.chave ? `<div class="msg">Sua chave (guarde-a): <code>${r.chave}</code></div>` : ""}
+      <div class="row" style="align-items:flex-start"><div class="qr" id="qr"></div><div style="flex:1;min-width:220px">
+      <p>Pague <b>${fmt(r.sats)} sats</b> para receber <b>${fmt(r.creditos)} créditos</b>.</p>
+      <p><a href="lightning:${r.invoice}">Abrir na carteira</a> · <a href="#" id="copInv">Copiar cobrança</a></p>
+      <p class="muted" id="stPag">Aguardando pagamento…</p>
+      <details ${r.confirmacao_automatica ? "" : "open"}><summary class="muted">${r.confirmacao_automatica ? "Não confirmou? Use o comprovante" : "Depois de pagar, cole o comprovante"}</summary>
+      <p class="muted">Na sua carteira, abra o pagamento e copie o <b>comprovante</b> (também chamado de preimage ou prova de pagamento, com 64 caracteres).</p>
+      <div class="row"><input id="preimg" style="flex:1" placeholder="comprovante do pagamento"><button id="btnPre">Confirmar</button></div></details></div></div>`;
+    try { new QRCode($("#qr"), { text: "lightning:" + r.invoice.toUpperCase(), width: 200, height: 200 }); } catch { $("#qr").remove(); }
+    $("#copInv").onclick = async e => { e.preventDefault(); try { await navigator.clipboard.writeText(r.invoice); e.target.textContent = "Copiada"; } catch {} };
+    $("#btnPre").onclick = async () => {
+      try {
+        const s = await (await api(`/api/creditos/${r.pedido}/comprovante`, { method: "POST", body: JSON.stringify({ preimage: $("#preimg").value }) })).json();
+        clearInterval(t); $("#stPag").innerHTML = `<b>Pago!</b> Saldo: ${fmt(s.creditos_na_chave)} créditos.`; atualizarSaldo();
+      } catch (e) { $("#stPag").textContent = e.message; }
+    };
+    const t = setInterval(async () => {
+      try {
+        const s = await (await api("/api/creditos/" + r.pedido)).json();
+        if (s.status === "pago") { clearInterval(t); $("#stPag").innerHTML = `<b>Pago!</b> Saldo: ${fmt(s.creditos_na_chave)} créditos.`; atualizarSaldo(); }
+      } catch {}
+    }, 3000);
+    setTimeout(() => clearInterval(t), 15 * 60 * 1000);
+  } catch (e) { $("#pag").innerHTML = `<div class="msg err">${e.message}</div>`; }
+}
+$("#salvarChave").onclick = () => { gravarChave($("#minhaChave").value.trim()); atualizarSaldo(); dlgCred.close(); };
+$("#btnCreditos").onclick = abrirCreditos;
+$("#btnMcp").onclick = () => { $("#mcpUrl").textContent = location.origin + "/mcp"; dlgMcp.showModal(); };
+
+// Controles
+$("#segTurno").onclick = e => { const b = e.target.closest("button"); if (!b) return; st.turno = b.dataset.t; carregar(); };
+$("#medida").onchange = e => { st.medida = e.target.value; carregar(); };
+$("#linhas").onchange = e => { st.linhas = e.target.value; st.pilha = []; if (st.colunas === st.linhas) st.colunas = ""; carregar(); };
+$("#colunas").onchange = e => { st.colunas = e.target.value === st.linhas ? "" : e.target.value; carregar(); };
+$("#ordem").onchange = e => { st.ordem = e.target.value; carregar(); };
+$("#limite").onchange = e => { st.limite = Number(e.target.value); carregar(); };
+let tb; $("#busca").oninput = e => { clearTimeout(tb); tb = setTimeout(() => { st.busca = e.target.value.trim(); carregar(); }, 400); };
+
+(async () => {
+  try {
+    META = await (await api("/api/meta")).json();
+    opcoes($("#medida"), META.medidas); opcoes($("#linhas"), META.dimensoes); opcoes($("#colunas"), META.dimensoes, "(nenhuma)");
+    const fd = { ...META.dimensoes }; delete fd.turno; opcoes($("#fDim"), fd);
+    atualizarSaldo(); carregar();
+  } catch (e) { aviso("Não foi possível carregar os dados. " + e.message, true); }
+})();
+</script>
+</body>
+</html>
