@@ -72,12 +72,20 @@ dialog::backdrop{background:#0008}.qr{background:#fff;padding:10px;display:inlin
 <main>
 <aside class="card">
   <h2>Montar a análise</h2>
+  <label>Dados</label>
+  <div class="seg" id="segBase"><button data-b="res" class="on">Resultados</button><button data-b="urn">Horários das urnas</button></div>
   <label>Turno</label>
   <div class="seg" id="segTurno"><button data-t="1" class="on">1º</button><button data-t="2">2º</button><button data-t="">Ambos</button></div>
   <label for="medida">Medir</label><select id="medida"></select>
   <label for="linhas">Linhas</label><select id="linhas"></select>
   <label for="colunas">Colunas (cruzar com)</label><select id="colunas"></select>
-  <label for="busca">Nome do candidato contém</label><input id="busca" placeholder="ex.: SILVA">
+  <div id="buscaBox"><label for="busca">Nome do candidato contém</label><input id="busca" placeholder="ex.: SILVA"></div>
+  <div id="limBox" style="display:none">
+    <label for="limHora">Limiar de horário (Brasília)</label><input id="limHora" value="17:00" inputmode="numeric" placeholder="17:00">
+    <label for="limTempo">Limiar de tempo de urna aberta</label><input id="limTempo" value="9:00" inputmode="numeric" placeholder="9:00">
+    <label for="passo">Largura das faixas</label><select id="passo"><option value="5">5 min</option><option value="10">10 min</option><option value="15">15 min</option><option value="30" selected>30 min</option><option value="60">60 min</option></select>
+    <p class="muted" style="margin:6px 0 0">Horários de Brasília (exterior: hora local). Precisão de minuto. Votos registrados por seção: limiar a partir de 16:00 ou de 8h00 de urna aberta.</p>
+  </div>
   <label>Filtros</label>
   <div class="row"><select id="fDim" style="flex:1"></select><button class="sec" id="fAdd">+</button></div>
   <div id="fBox"></div>
@@ -85,7 +93,7 @@ dialog::backdrop{background:#0008}.qr{background:#fff;padding:10px;display:inlin
   <label for="ordem">Ordenar</label><select id="ordem"><option value="desc">Maior primeiro</option><option value="asc">Menor primeiro</option><option value="nome">Nome (A-Z)</option></select>
   <label for="limite">Mostrar</label><select id="limite"><option>20</option><option selected>50</option><option>100</option><option>500</option></select>
   <div class="row" style="margin-top:14px"><button id="exportar" class="sec">Exportar CSV</button></div>
-  <p class="muted">Clique em uma linha para descer um nível (UF → município, cargo → partido → candidato). Use a trilha acima do gráfico para voltar.</p>
+  <p class="muted" id="dica">Clique em uma linha para descer um nível (UF → município, cargo → partido → candidato). Use a trilha acima do gráfico para voltar.</p>
 </aside>
 <section class="card">
   <div id="aviso"></div>
@@ -135,16 +143,23 @@ dialog::backdrop{background:#0008}.qr{background:#fff;padding:10px;display:inlin
   <p>Adicione este servidor no Claude (Configurações → Conectores → Adicionar conector personalizado), no Cursor ou em qualquer cliente MCP com HTTP:</p>
   <p><code id="mcpUrl"></code></p>
   <p class="muted">Sem chave, vale a cota grátis diária. Com chave, envie o cabeçalho <code>Authorization: Bearer SUA_CHAVE</code> ou acrescente <code>?chave=SUA_CHAVE</code> ao endereço.</p>
-  <p class="muted">Ferramentas: <code>explorar</code> (tabela dinâmica com filtros), <code>buscar_candidatos</code>, <code>detalhar_candidato</code>, <code>valores_dimensao</code> e <code>saldo</code>.</p>
+  <p class="muted">Ferramentas: <code>explorar</code> (tabela dinâmica com filtros), <code>buscar_candidatos</code>, <code>detalhar_candidato</code>, <code>valores_dimensao</code>, <code>horarios_urnas</code> (horários das urnas, com tabela dinâmica e limiares) e <code>saldo</code>.</p>
   <div class="row"><button class="sec" onclick="dlgMcp.close()">Fechar</button></div>
 </dialog>
 
 <script>
 const $ = s => document.querySelector(s);
-const fmt = v => v == null ? "–" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+const fmtN = v => v == null ? "–" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+const FORMATOS = {
+  hora: v => v == null ? "–" : `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(Math.floor(v % 60)).padStart(2, "0")}`,
+  duracao: v => v == null ? "–" : `${Math.floor(v / 60)}h${String(Math.floor(v % 60)).padStart(2, "0")}`,
+  pct: v => v == null ? "–" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%",
+};
+let fmt = fmtN;
+const M = () => st.base === "urn" ? META.urnas : META;
 const CORES = Array.from({ length: 13 }, (_, i) => `var(--s${i + 1})`);
 let META = null;
-const st = { turno: "1", medida: "votos", linhas: "uf", colunas: "", filtros: {}, busca: "", ordem: "desc", limite: 50, pilha: [] };
+const st = { base: "res", turno: "1", medida: "votos", linhas: "uf", colunas: "", filtros: {}, busca: "", ordem: "desc", limite: 50, pilha: [], limHora: "17:00", limTempo: "9:00", passo: 30 };
 const lerChave = () => { try { return localStorage.getItem("tse.chave") || ""; } catch { return ""; } };
 const gravarChave = c => { try { localStorage.setItem("tse.chave", c); } catch {} };
 
@@ -159,16 +174,19 @@ function aviso(t, err) { $("#aviso").innerHTML = t ? `<div class="msg ${err ? "e
 
 function params() {
   const f = { ...st.filtros }; if (st.turno) f.turno = [st.turno];
+  if (st.base === "urn") return { medida: st.medida, linhas: st.linhas, colunas: st.colunas || null, filtros: f, ordem: st.ordem, limite: st.limite, limiar_hora: st.limHora, limiar_tempo: st.limTempo, passo: st.passo };
   return { medida: st.medida, linhas: st.linhas, colunas: st.colunas || null, filtros: f, busca: st.busca || undefined, ordem: st.ordem, limite: st.limite };
 }
 
 async function carregar() {
   $("#segTurno").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.t === st.turno));
+  $("#segBase").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.b === st.base));
+  fmt = (st.base === "urn" && FORMATOS[(META.urnas.formatos || {})[st.medida]]) || fmtN;
   $("#medida").value = st.medida; $("#linhas").value = st.linhas; $("#colunas").value = st.colunas;
   desenharChips(); desenharTrilha();
   aviso(""); $("#bars").innerHTML = '<span class="muted">Carregando…</span>';
   try {
-    const r = await (await api("/api/explorar", { method: "POST", body: JSON.stringify(params()) })).json();
+    const r = await (await api(st.base === "urn" ? "/api/urnas/explorar" : "/api/explorar", { method: "POST", body: JSON.stringify(params()) })).json();
     desenhar(r); mostrarSaldo(r.cobranca);
   } catch (e) {
     $("#bars").innerHTML = ""; $("#tab").innerHTML = "";
@@ -177,15 +195,16 @@ async function carregar() {
 }
 
 function proximoNivel(dim) {
-  for (const h of META.hierarquias) { const i = h.indexOf(dim); if (i >= 0 && i < h.length - 1) return h[i + 1]; }
+  for (const h of M().hierarquias) { const i = h.indexOf(dim); if (i >= 0 && i < h.length - 1) return h[i + 1]; }
   return null;
 }
 function descer(valor) {
-  if (st.linhas === "candidato") return abrirCandidatoPorNome(valor);
+  if (st.base === "res" && st.linhas === "candidato") return abrirCandidatoPorNome(valor);
   const prox = proximoNivel(st.linhas);
+  if (st.base === "urn" && !prox) return;
   st.pilha.push({ linhas: st.linhas, filtros: JSON.parse(JSON.stringify(st.filtros)), rotulo: valor });
   st.filtros[st.linhas] = [valor];
-  st.linhas = prox || (st.linhas === "candidato" ? "municipio" : "candidato");
+  st.linhas = prox || (st.base === "urn" ? st.linhas : st.linhas === "candidato" ? "municipio" : "candidato");
   if (st.colunas === st.linhas) st.colunas = "";
   carregar();
 }
@@ -198,19 +217,21 @@ function desenharTrilha() {
   if (!n) { $("#trilha").innerHTML = ""; return; }
   const itens = ['<a onclick="voltarPara(0)">Início</a>'].concat(st.pilha.map((p, i) =>
     i < n - 1 ? `<a onclick="voltarPara(${i + 1})">${p.rotulo}</a>` : `<b>${p.rotulo}</b>`));
-  $("#trilha").innerHTML = itens.join(' <span class="sep">›</span> ') + ` <span class="sep">›</span> <span class="muted">por ${META.dimensoes[st.linhas]}</span>`;
+  $("#trilha").innerHTML = itens.join(' <span class="sep">›</span> ') + ` <span class="sep">›</span> <span class="muted">por ${M().dimensoes[st.linhas]}</span>`;
 }
 function desenharChips() {
-  $("#chips").innerHTML = Object.entries(st.filtros).flatMap(([d, vs]) => vs.map(v => `<span class="chip">${META.dimensoes[d]}: ${v} <b onclick="tirar('${d}','${String(v).replace(/'/g, "\\'")}')">×</b></span>`)).join("")
+  $("#chips").innerHTML = Object.entries(st.filtros).flatMap(([d, vs]) => vs.map(v => `<span class="chip">${M().dimensoes[d]}: ${v} <b onclick="tirar('${d}','${String(v).replace(/'/g, "\\'")}')">×</b></span>`)).join("")
     + (st.busca ? `<span class="chip">Nome: ${st.busca} <b onclick="st.busca='';$('#busca').value='';carregar()">×</b></span>` : "");
 }
 function tirar(d, v) { st.filtros[d] = (st.filtros[d] || []).filter(x => x !== v); if (!st.filtros[d].length) delete st.filtros[d]; carregar(); }
 
 function desenhar(r) {
-  const med = META.medidas[r.medida];
-  $("#kpis").innerHTML = `<div>${med} no total<b>${fmt(r.total_geral)}</b></div><div>${META.dimensoes[r.linhas_dim]}<b>${fmt(r.total_linhas)}</b></div>` +
+  const med = M().medidas[r.medida];
+  $("#kpis").innerHTML = (r.valor_geral !== undefined ? `<div>${med} (geral)<b>${fmt(r.valor_geral)}</b></div>` : `<div>${med} no total<b>${fmt(r.total_geral)}</b></div>`) + `<div>${M().dimensoes[r.linhas_dim]}<b>${fmtN(r.total_linhas)}</b></div>` +
+    (r.limiar_hora ? `<div>Limiares<b style="font-size:15px">${r.limiar_hora} · ${r.limiar_tempo}</b></div>` : "") +
     (r.cobranca && r.cobranca.modo !== "site" ? `<div>${r.cobranca.modo === "gratis" ? "Cota grátis restante hoje" : "Créditos restantes"}<b>${fmt(r.cobranca.restante)}</b></div>` : "");
-  const cols = r.colunas; const max = Math.max(1, ...r.linhas.map(l => l.total));
+  if (r.sem_dado_por_secao && r.sem_dado_por_secao.length) aviso(`Votos registrados por seção ainda sendo calculados para: ${r.sem_dado_por_secao.join(", ")}. Esses estados ficam com zero nesta medida até o cálculo terminar.`);
+  const cols = r.colunas; const max = Math.max(1, ...r.linhas.map(l => l.total || 0));
   const corDe = c => CORES[cols.indexOf(c) % CORES.length];
   $("#leg").innerHTML = r.colunas_dim ? cols.map(c => `<span><i style="background:${corDe(c)}"></i>${c}</span>`).join("") : "";
   const top = r.linhas.slice(0, 25);
@@ -218,7 +239,7 @@ function desenhar(r) {
     r.colunas_dim ? cols.map(c => `<i title="${c}: ${fmt(l.valores[c])}" style="width:${(l.valores[c] / max) * 100}%;background:${corDe(c)}"></i>`).join("") : `<i style="width:${(l.total / max) * 100}%;background:var(--s1)"></i>`
   }</span><span class="v">${fmt(l.total)}</span></div>`).join("") || '<span class="muted">Nenhum resultado com esses filtros.</span>';
   document.querySelectorAll(".bar").forEach(b => b.onclick = () => descer(decodeURIComponent(b.dataset.v)));
-  const cab = `<tr><th>${META.dimensoes[r.linhas_dim]}</th>${r.colunas_dim ? cols.map(c => `<th>${c}</th>`).join("") : ""}<th>${r.medida === "patrimonio_medio" ? med : "Total"}</th><th>%</th></tr>`;
+  const cab = `<tr><th>${M().dimensoes[r.linhas_dim]}</th>${r.colunas_dim ? cols.map(c => `<th>${c}</th>`).join("") : ""}<th>${r.total_geral == null ? med : "Total"}</th><th>%</th></tr>`;
   const tg = r.total_geral || 1;
   $("#tab").innerHTML = cab + r.linhas.map(l => `<tr class="clic"><td data-v="${encodeURIComponent(l.chave)}">${l.chave}</td>${
     r.colunas_dim ? cols.map(c => { const v = l.valores[c]; const a = max ? Math.min(.55, v / max) : 0; return `<td class="num" style="background:color-mix(in srgb, var(--acc) ${a * 100}%, transparent)">${fmt(v)}</td>`; }).join("") : ""
@@ -252,9 +273,12 @@ async function abrirCandidatoPorNome(rotulo) {
 $("#fAdd").onclick = async () => {
   const d = $("#fDim").value; const uf = (st.filtros.uf || [])[0];
   try {
-    const vs = (await (await api(`/api/valores?dimensao=${d}${uf ? "&uf=" + uf : ""}`)).json()).valores;
+    const mun = (st.filtros.municipio || [])[0];
+    const vs = (await (await api(st.base === "urn"
+      ? `/api/urnas/valores?dimensao=${d}${uf ? "&uf=" + encodeURIComponent(uf) : ""}${mun ? "&municipio=" + encodeURIComponent(mun) : ""}${st.turno ? "&turno=" + st.turno : ""}&limiar_hora=${encodeURIComponent(st.limHora)}&limiar_tempo=${encodeURIComponent(st.limTempo)}&passo=${st.passo}`
+      : `/api/valores?dimensao=${d}${uf ? "&uf=" + uf : ""}`)).json()).valores;
     const marc = new Set(st.filtros[d] || []);
-    $("#fBox").innerHTML = `<input id="fBusca" placeholder="Procurar em ${META.dimensoes[d]}…" style="margin-top:6px"><div class="vals">${vs.map(v => `<label><input type="checkbox" value="${String(v).replace(/"/g, "&quot;")}" ${marc.has(v) ? "checked" : ""}>${v}</label>`).join("")}</div><div class="row" style="margin-top:6px"><button id="fOk">Aplicar</button><button class="sec" onclick="$('#fBox').innerHTML=''">Cancelar</button></div>`;
+    $("#fBox").innerHTML = `<input id="fBusca" placeholder="Procurar em ${M().dimensoes[d]}…" style="margin-top:6px"><div class="vals">${vs.map(v => `<label><input type="checkbox" value="${String(v).replace(/"/g, "&quot;")}" ${marc.has(v) ? "checked" : ""}>${v}</label>`).join("")}</div><div class="row" style="margin-top:6px"><button id="fOk">Aplicar</button><button class="sec" onclick="$('#fBox').innerHTML=''">Cancelar</button></div>`;
     $("#fBusca").oninput = e => { const t = e.target.value.toUpperCase(); document.querySelectorAll(".vals label").forEach(l => l.style.display = l.textContent.toUpperCase().includes(t) ? "" : "none"); };
     $("#fOk").onclick = () => { const sel = [...document.querySelectorAll(".vals input:checked")].map(i => i.value); if (sel.length) st.filtros[d] = sel; else delete st.filtros[d]; $("#fBox").innerHTML = ""; carregar(); };
   } catch (e) { aviso(e.message, true); }
@@ -262,8 +286,8 @@ $("#fAdd").onclick = async () => {
 
 $("#exportar").onclick = async () => {
   try {
-    const r = await api("/api/explorar", { method: "POST", body: JSON.stringify({ ...params(), limite: 50000, exportar: true }) });
-    const url = URL.createObjectURL(await r.blob()); const a = document.createElement("a"); a.href = url; a.download = "eleicoes2026.csv"; a.click(); URL.revokeObjectURL(url);
+    const r = await api(st.base === "urn" ? "/api/urnas/explorar" : "/api/explorar", { method: "POST", body: JSON.stringify({ ...params(), limite: st.base === "urn" ? 100000 : 50000, exportar: true }) });
+    const url = URL.createObjectURL(await r.blob()); const a = document.createElement("a"); a.href = url; a.download = st.base === "urn" ? "urnas2026.csv" : "eleicoes2026.csv"; a.click(); URL.revokeObjectURL(url);
     atualizarSaldo();
   } catch (e) { aviso(e.message, true); }
 };
@@ -325,6 +349,20 @@ $("#btnCreditos").onclick = abrirCreditos;
 $("#btnMcp").onclick = () => { $("#mcpUrl").textContent = location.origin + "/mcp"; dlgMcp.showModal(); };
 
 // Controles
+function aplicarBase(b) {
+  if (b === "urn" && !META.urnas) { aviso("Horários das urnas ainda não disponíveis.", true); return; }
+  st.base = b; st.filtros = {}; st.pilha = []; st.colunas = ""; st.busca = ""; $("#busca").value = "";
+  st.medida = b === "urn" ? "secoes" : "votos"; st.linhas = "uf"; st.ordem = b === "urn" ? "nome" : "desc"; $("#ordem").value = st.ordem;
+  const m = M(); opcoes($("#medida"), m.medidas); opcoes($("#linhas"), m.dimensoes); opcoes($("#colunas"), m.dimensoes, "(nenhuma)");
+  const fd = { ...m.dimensoes }; delete fd.turno; opcoes($("#fDim"), fd); $("#fBox").innerHTML = "";
+  $("#buscaBox").style.display = b === "urn" ? "none" : ""; $("#limBox").style.display = b === "urn" ? "" : "none";
+  $("#dica").textContent = b === "urn" ? "Clique em uma linha para descer um nível (UF → município → zona → seção). Use a trilha acima do gráfico para voltar." : "Clique em uma linha para descer um nível (UF → município, cargo → partido → candidato). Use a trilha acima do gráfico para voltar.";
+  carregar();
+}
+$("#segBase").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.b !== st.base) aplicarBase(b.dataset.b); };
+const limOk = v => /^\d{1,2}[:h]\d{2}$/.test(String(v).trim());
+let tl; for (const [id, k] of [["#limHora", "limHora"], ["#limTempo", "limTempo"]]) $(id).oninput = e => { clearTimeout(tl); tl = setTimeout(() => { if (limOk(e.target.value)) { st[k] = e.target.value.trim(); carregar(); } }, 500); };
+$("#passo").onchange = e => { st.passo = Number(e.target.value); carregar(); };
 $("#segTurno").onclick = e => { const b = e.target.closest("button"); if (!b) return; st.turno = b.dataset.t; carregar(); };
 $("#medida").onchange = e => { st.medida = e.target.value; carregar(); };
 $("#linhas").onchange = e => { st.linhas = e.target.value; st.pilha = []; if (st.colunas === st.linhas) st.colunas = ""; carregar(); };
@@ -338,7 +376,10 @@ let tb; $("#busca").oninput = e => { clearTimeout(tb); tb = setTimeout(() => { s
     META = await (await api("/api/meta")).json();
     opcoes($("#medida"), META.medidas); opcoes($("#linhas"), META.dimensoes); opcoes($("#colunas"), META.dimensoes, "(nenhuma)");
     const fd = { ...META.dimensoes }; delete fd.turno; opcoes($("#fDim"), fd);
-    atualizarSaldo(); carregar();
+    atualizarSaldo();
+    const q = new URLSearchParams(location.search);
+    if (q.get("base") === "urnas" && META.urnas) { if (q.get("turno")) st.turno = q.get("turno"); aplicarBase("urn"); if (q.get("uf")) { st.filtros.uf = [q.get("uf").toUpperCase()]; st.linhas = "municipio"; carregar(); } }
+    else carregar();
   } catch (e) { aviso("Não foi possível carregar os dados. " + e.message, true); }
 })();
 </script>

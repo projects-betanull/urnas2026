@@ -29,6 +29,7 @@ export async function paginaUrnas(env, origem, q) {
   const link = (t, u) => `/urnas?turno=${t}${u ? "&uf=" + u : ""}`;
   const corpo = `<h1>Horários das urnas nas eleições 2026</h1>
 <p>Quando as urnas abriram, como os votos se distribuíram ao longo do dia e a que horas cada seção encerrou, segundo os logs oficiais publicados pelo TSE. O log registra o horário de cada voto, mas não em quem se votou.</p>
+<p><a href="/?base=urnas&turno=${turno}${uf ? "&uf=" + uf : ""}"><b>Abrir no explorador</b></a>: filtros, tabela dinâmica, faixas de horário e drill de UF até a seção.</p>
 <p class="muted">Turno: ${[1, 2].map(t => t === turno ? `<b>${t}º</b>` : `<a href="${link(t, uf)}">${t}º</a>`).join(" · ")} · Estado: ${uf ? `<b>${esc(uf)}</b> · <a href="${link(turno)}">todos</a>` : "<b>todos os disponíveis</b>"}</p>
 ${erro ? `<div class="card">${esc(erro)}</div>` : ""}
 ${!ufsT.length && !erro ? `<div class="card">Os logs deste turno ainda estão sendo processados. Volte em breve.</div>` : ""}

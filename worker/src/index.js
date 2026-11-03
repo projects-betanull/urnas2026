@@ -10,6 +10,7 @@ import { SITE_HTML } from "./site.js";
 import { paginaEstados, paginaUF, paginaCandidato, sitemap } from "./paginas.js";
 import { resumoUrnas, curvaUrnas, municipiosUrnas, secoesUrnas, distribuicaoUrnas } from "./urnas.js";
 import { paginaUrnas } from "./pagina_urnas.js";
+import { explorarUrnas, valoresUrnas, DIM_URNAS, MED_URNAS, HIER_URNAS } from "./explorar_urnas.js";
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -90,9 +91,16 @@ const FERRAMENTAS = [
   },
   {
     name: "horarios_urnas",
-    description: "Horários das urnas das eleições 2026, tirados dos logs oficiais do TSE (não dizem em quem se votou). modo=resumo: por UF, seções, encerramento médio, seções encerradas após 17h30/18h/19h e votos depois das 17h e 19h. modo=curva: votos por intervalo de tempo ao longo do dia. modo=municipios (exige uf): o mesmo por município. modo=secoes (exige uf; cd_municipio opcional): seção por seção, com abertura, primeiro e último voto e encerramento. modo=distribuicao (exige turno e visao): contagem por minuto para aplicar limiares, ex.: votos registrados depois das 17h de Brasília versus votos de urnas que encerraram depois das 17h ou que funcionaram mais de 9h.",
+    description: "Horários das urnas das eleições 2026, tirados dos logs oficiais do TSE (não dizem em quem se votou). modo=resumo: por UF, seções, encerramento médio, seções encerradas após 17h30/18h/19h e votos depois das 17h e 19h. modo=curva: votos por intervalo de tempo ao longo do dia. modo=municipios (exige uf): o mesmo por município. modo=secoes (exige uf; cd_municipio opcional): seção por seção, com abertura, primeiro e último voto e encerramento. modo=explorar: tabela dinâmica dos horários com as mesmas ideias do explorador (medida, linhas, colunas, filtros; drill UF > município > zona > seção; faixas de encerramento, abertura e tempo de funcionamento; limiares de horário e de tempo com precisão de minuto). modo=distribuicao (exige turno e visao): contagem por minuto para aplicar limiares, ex.: votos registrados depois das 17h de Brasília versus votos de urnas que encerraram depois das 17h ou que funcionaram mais de 9h.",
     inputSchema: { type: "object", properties: {
-      modo: { type: "string", enum: ["resumo", "curva", "municipios", "secoes", "distribuicao"] },
+      modo: { type: "string", enum: ["resumo", "curva", "municipios", "secoes", "distribuicao", "explorar"] },
+      medida: { type: "string", enum: Object.keys(MED_URNAS), description: "modo=explorar: o que medir." },
+      linhas: { type: "string", enum: Object.keys(DIM_URNAS), description: "modo=explorar: dimensão nas linhas." },
+      colunas: { type: "string", enum: Object.keys(DIM_URNAS), description: "modo=explorar: dimensão nas colunas (opcional)." },
+      filtros: { type: "object", description: "modo=explorar: {dimensão: [valores]}, ex.: {\"uf\":[\"BA\"],\"turno\":[\"1\"]}." },
+      limiar_hora: { type: "string", description: "modo=explorar: horário de Brasília HH:MM (padrão 17:00). Votos por seção: a partir de 16:00." },
+      limiar_tempo: { type: "string", description: "modo=explorar: tempo de urna aberta H:MM (padrão 9:00). Votos por seção: a partir de 8:00." },
+      passo: { type: "integer", description: "modo=explorar: largura das faixas em minutos (5, 10, 15, 30, 60)." },
       visao: { type: "string", enum: ["horario_voto", "tempo_voto", "encerramento", "duracao"], description: "modo=distribuicao: horario_voto (votos pelo minuto do registro, Brasília), tempo_voto (votos pelo tempo desde a abertura da urna), encerramento (urnas e seus votos pelo minuto de encerramento, Brasília), duracao (urnas e seus votos pelo tempo de funcionamento). Exige turno. Devolve [minuto, votos, secoes] por minuto." },
       turno: { type: "integer", enum: [1, 2] },
       uf: { type: "string", description: "Sigla da UF, ex.: SP. ZZ = exterior." },
@@ -126,6 +134,11 @@ async function chamarFerramenta(env, ctx, nome, args, quem) {
     case "valores_dimensao":
       return { dimensao: args.dimensao, valores: await valoresDimensao(env.DB, args.dimensao, args.uf) };
     case "horarios_urnas": {
+      if (args.modo === "explorar") {
+        const r = await explorarUrnas(env, args);
+        const piv = pivotar(r, { limite: Math.min(Number(args.limite) || 50, 500), ordem: args.ordem });
+        return { ...piv, limiar_hora: r.limiar_hora, limiar_tempo: r.limiar_tempo, sem_dado_por_secao: r.sem_dado_por_secao, cobranca: await cobrar(env.DB, { ...quem, custo: 1 }) };
+      }
       const f = { resumo: resumoUrnas, curva: curvaUrnas, municipios: municipiosUrnas, secoes: secoesUrnas, distribuicao: distribuicaoUrnas }[args.modo];
       if (!f) throw new ErroApi(400, "modo deve ser resumo, curva, municipios, secoes ou distribuicao.");
       const r = await f(env, args);
@@ -245,7 +258,10 @@ export default {
         return json({ meta: Object.fromEntries(m.map(x => [x.chave, x.valor])), dimensoes: Object.fromEntries(Object.entries(DIMENSOES).map(([k, v]) => [k, v.rotulo])),
           medidas: Object.fromEntries(Object.entries(MEDIDAS).map(([k, v]) => [k, v.rotulo])), hierarquias: HIERARQUIAS, cota_gratis_diaria: COTA_GRATIS,
           pacotes: await (async () => { const c = await cotacaoBRL(fetcher); return Object.fromEntries(Object.entries(PACOTES).map(([k, p]) => [k, { ...p, reais: c ? Math.round(p.sats / 1e8 * c * 100) / 100 : null }])); })(),
-          pagamentos_ativos: !!env.LN_ADDRESS });
+          pagamentos_ativos: !!env.LN_ADDRESS,
+          urnas: env.URNAS ? { dimensoes: DIM_URNAS, medidas: Object.fromEntries(Object.entries(MED_URNAS).map(([k, v]) => [k, v.rotulo])),
+            formatos: Object.fromEntries(Object.entries(MED_URNAS).filter(([, v]) => v.formato).map(([k, v]) => [k, v.formato])), hierarquias: HIER_URNAS,
+            disponiveis: env.URNAS.disponiveis() } : null });
       }
       if (p === "/api/explorar" && req.method === "POST") {
         const params = await req.json();
@@ -256,6 +272,19 @@ export default {
       }
       if (p === "/api/valores") return json({ valores: await valoresDimensao(env.DB, url.searchParams.get("dimensao"), url.searchParams.get("uf")) });
       if (p === "/urnas") { await registrar(env.DB, "pagina", quem.ip); return await paginaUrnas(env, url.origin, url.searchParams); }
+      if (p === "/api/urnas/explorar" && req.method === "POST") {
+        const b = await req.json().catch(() => ({})), exportar = !!b.exportar;
+        const r = await explorarUrnas(env, b);
+        const piv = pivotar(r, { limite: Math.min(Number(b.limite) || (exportar ? 50000 : 50), exportar ? 100000 : 500), maxColunas: Number(b.max_colunas) || 12, ordem: b.ordem });
+        Object.assign(piv, { limiar_hora: r.limiar_hora, limiar_tempo: r.limiar_tempo, passo: r.passo, sem_dado_por_secao: r.sem_dado_por_secao });
+        const cobranca = await cobrar(env.DB, { ...quem, site: quem.site && !exportar, custo: custoConsulta(exportar, piv.linhas.length) });
+        if (exportar) { await registrar(env.DB, "export", quem.ip); return new Response(csv(piv), { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="urnas2026.csv"', ...CORS } }); }
+        return json({ ...piv, cobranca });
+      }
+      if (p === "/api/urnas/valores") {
+        const q = Object.fromEntries(url.searchParams);
+        return json({ valores: await valoresUrnas(env, q.dimensao, q) });
+      }
       if (p.startsWith("/api/urnas")) {
         const q = Object.fromEntries(url.searchParams), modo = p.split("/")[3] || "resumo";
         const f = { resumo: resumoUrnas, curva: curvaUrnas, municipios: municipiosUrnas, secoes: secoesUrnas, distribuicao: distribuicaoUrnas }[modo];

@@ -21,7 +21,7 @@ const LOGS = process.env.LOGS_DIR || "/srv/eleicoes/logs";
 let derivando = false;
 const derivar = async () => {
   if (derivando) return; derivando = true;
-  try { await derivarTempos(LOGS, m => { try { appendFileSync("/srv/eleicoes/status.txt", `${new Date().toISOString().slice(0, 19)}Z ${m}\n`); } catch {} }); }
+  try { await derivarTempos(LOGS, m => { try { appendFileSync("/srv/eleicoes/status.txt", `${new Date().toISOString().slice(0, 19)}Z ${m}\n`); } catch {} }, nome => env.URNAS.soltar(nome)); }
   catch (e) { console.error("derivarTempos", e); } finally { derivando = false; }
 };
 setTimeout(derivar, 60_000); setInterval(derivar, 3600_000);

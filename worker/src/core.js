@@ -85,11 +85,14 @@ export function pivotar(r, { limite = 50, maxColunas = 12, ordem = "desc" } = {}
     totCol.set(c, (totCol.get(c) || 0) + v);
     cel.set(l + "\u0000" + c, v);
   }
-  let colunas = [...totCol.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]);
-  const outras = colunas.slice(maxColunas);
+  const soma = !r.tipo || r.tipo === "soma";
+  if (r.totLinha) for (const l of tot.keys()) tot.set(l, r.totLinha[l] ?? null);
+  const porNome = !soma || String(r.colDim || "").startsWith("faixa_");
+  let colunas = [...totCol.entries()].sort((a, b) => porNome ? String(a[0]).localeCompare(String(b[0]), "pt-BR", { numeric: true }) : b[1] - a[1]).map(e => e[0]);
+  const outras = soma ? colunas.slice(maxColunas) : [];
   colunas = colunas.slice(0, maxColunas);
   let linhas = [...tot.entries()];
-  linhas.sort((a, b) => ordem === "asc" ? a[1] - b[1] : ordem === "nome" ? String(a[0]).localeCompare(String(b[0]), "pt-BR") : b[1] - a[1]);
+  linhas.sort((a, b) => ordem === "asc" ? (a[1] ?? -Infinity) - (b[1] ?? -Infinity) : ordem === "nome" ? String(a[0]).localeCompare(String(b[0]), "pt-BR", { numeric: true }) : (b[1] ?? -Infinity) - (a[1] ?? -Infinity));
   const totalLinhas = linhas.length;
   linhas = linhas.slice(0, limite).map(([l, t]) => {
     const valores = {};
@@ -98,11 +101,12 @@ export function pivotar(r, { limite = 50, maxColunas = 12, ordem = "desc" } = {}
     return { chave: l, valores, total: t };
   });
   if (outras.length) colunas.push("Outros");
-  const media = r.medida === "patrimonio_medio";
+  const media = r.medida === "patrimonio_medio" || !soma;
   return {
     medida: r.medida, linhas_dim: r.linhaDim, colunas_dim: r.colDim, filtros: r.filtros,
     colunas, linhas, total_linhas: totalLinhas,
     total_geral: media ? null : [...tot.values()].reduce((s, v) => s + v, 0),
+    ...(r.valorGeral !== undefined && !soma ? { valor_geral: r.valorGeral } : {}),
   };
 }
 
