@@ -27,7 +27,7 @@ table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,t
 <main>${corpo}</main>
 <footer>Fonte: Tribunal Superior Eleitoral, Portal de Dados Abertos (resultados e candidaturas de 2026). Site independente, sem ligação com o TSE. Para cruzar, filtrar e exportar estes dados, use o <a href="/">explorador</a> ou o servidor MCP em <code>${origem}/mcp</code>.</footer></body></html>`;
 }
-export const paginaBase = o => resp(pagina(o));
+export const paginaBase = o => new Response(pagina(o), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "max-age=300" } });
 const resp = html => new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "max-age=3600" } });
 const naoAchou = origem => new Response(pagina({ titulo: "Página não encontrada", descricao: "", canonico: "/", origem, corpo: `<h1>Página não encontrada</h1><p><a href="/estados">Ver estados</a></p>` }), { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
 
