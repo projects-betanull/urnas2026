@@ -3,7 +3,8 @@ import http from "node:http";
 import { readFileSync } from "node:fs";
 const VERSAO = (() => { try { return readFileSync("/srv/eleicoes/versao", "utf8").trim(); } catch { return ""; } })();
 import worker from "../worker/src/index.js";
-import { abrirD1, abrirUrnas } from "../test/d1.mjs";
+import { abrirD1, abrirUrnas, derivarTempos } from "../test/d1.mjs";
+import { appendFileSync } from "node:fs";
 const env = { DB: abrirD1(process.env.DB_PATH || "/srv/eleicoes/dados.db"), LN_ADDRESS: process.env.LN_ADDRESS || "lizard43@coinos.io", VERSAO, URNAS: abrirUrnas(process.env.LOGS_DIR || "/srv/eleicoes/logs") };
 http.createServer(async (req, res) => {
   try {
@@ -14,3 +15,13 @@ http.createServer(async (req, res) => {
     res.writeHead(r.status, Object.fromEntries(r.headers)); res.end(Buffer.from(await r.arrayBuffer()));
   } catch (e) { console.error(e); res.writeHead(500); res.end("erro"); }
 }).listen(Number(process.env.PORT || 8080), "127.0.0.1", () => console.log("ouvindo"));
+
+// Em segundo plano: gera as bases de "tempo do voto desde a abertura" para os estados já processados.
+const LOGS = process.env.LOGS_DIR || "/srv/eleicoes/logs";
+let derivando = false;
+const derivar = async () => {
+  if (derivando) return; derivando = true;
+  try { await derivarTempos(LOGS, m => { try { appendFileSync("/srv/eleicoes/status.txt", `${new Date().toISOString().slice(0, 19)}Z ${m}\n`); } catch {} }); }
+  catch (e) { console.error("derivarTempos", e); } finally { derivando = false; }
+};
+setTimeout(derivar, 60_000); setInterval(derivar, 3600_000);

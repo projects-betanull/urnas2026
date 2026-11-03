@@ -8,7 +8,7 @@ import {
 } from "./core.js";
 import { SITE_HTML } from "./site.js";
 import { paginaEstados, paginaUF, paginaCandidato, sitemap } from "./paginas.js";
-import { resumoUrnas, curvaUrnas, municipiosUrnas, secoesUrnas } from "./urnas.js";
+import { resumoUrnas, curvaUrnas, municipiosUrnas, secoesUrnas, distribuicaoUrnas } from "./urnas.js";
 import { paginaUrnas } from "./pagina_urnas.js";
 
 const CORS = {
@@ -90,9 +90,10 @@ const FERRAMENTAS = [
   },
   {
     name: "horarios_urnas",
-    description: "Horários das urnas das eleições 2026, tirados dos logs oficiais do TSE (não dizem em quem se votou). modo=resumo: por UF, seções, encerramento médio, seções encerradas após 17h30/18h/19h e votos depois das 17h e 19h. modo=curva: votos por intervalo de tempo ao longo do dia. modo=municipios (exige uf): o mesmo por município. modo=secoes (exige uf; cd_municipio opcional): seção por seção, com abertura, primeiro e último voto e encerramento.",
+    description: "Horários das urnas das eleições 2026, tirados dos logs oficiais do TSE (não dizem em quem se votou). modo=resumo: por UF, seções, encerramento médio, seções encerradas após 17h30/18h/19h e votos depois das 17h e 19h. modo=curva: votos por intervalo de tempo ao longo do dia. modo=municipios (exige uf): o mesmo por município. modo=secoes (exige uf; cd_municipio opcional): seção por seção, com abertura, primeiro e último voto e encerramento. modo=distribuicao (exige turno e visao): contagem por minuto para aplicar limiares, ex.: votos registrados depois das 17h de Brasília versus votos de urnas que encerraram depois das 17h ou que funcionaram mais de 9h.",
     inputSchema: { type: "object", properties: {
-      modo: { type: "string", enum: ["resumo", "curva", "municipios", "secoes"] },
+      modo: { type: "string", enum: ["resumo", "curva", "municipios", "secoes", "distribuicao"] },
+      visao: { type: "string", enum: ["horario_voto", "tempo_voto", "encerramento", "duracao"], description: "modo=distribuicao: horario_voto (votos pelo minuto do registro, Brasília), tempo_voto (votos pelo tempo desde a abertura da urna), encerramento (urnas e seus votos pelo minuto de encerramento, Brasília), duracao (urnas e seus votos pelo tempo de funcionamento). Exige turno. Devolve [minuto, votos, secoes] por minuto." },
       turno: { type: "integer", enum: [1, 2] },
       uf: { type: "string", description: "Sigla da UF, ex.: SP. ZZ = exterior." },
       cd_municipio: { type: "string", description: "Código TSE do município (modo secoes)." },
@@ -125,8 +126,8 @@ async function chamarFerramenta(env, ctx, nome, args, quem) {
     case "valores_dimensao":
       return { dimensao: args.dimensao, valores: await valoresDimensao(env.DB, args.dimensao, args.uf) };
     case "horarios_urnas": {
-      const f = { resumo: resumoUrnas, curva: curvaUrnas, municipios: municipiosUrnas, secoes: secoesUrnas }[args.modo];
-      if (!f) throw new ErroApi(400, "modo deve ser resumo, curva, municipios ou secoes.");
+      const f = { resumo: resumoUrnas, curva: curvaUrnas, municipios: municipiosUrnas, secoes: secoesUrnas, distribuicao: distribuicaoUrnas }[args.modo];
+      if (!f) throw new ErroApi(400, "modo deve ser resumo, curva, municipios, secoes ou distribuicao.");
       const r = await f(env, args);
       return { ...r, cobranca: await cobrar(env.DB, { ...quem, custo: 1 }) };
     }
@@ -197,7 +198,7 @@ const LLMS_TXT = o => `# Eleições 2026 em dados
 - POST ${o}/api/explorar: {"medida":"votos","linhas":"uf","colunas":"partido","filtros":{"turno":["1"],"cargo":["PRESIDENTE"]}}
 - GET ${o}/api/candidatos?q=NOME
 - GET ${o}/api/candidato/SQ_CANDIDATO
-- GET ${o}/api/urnas (resumo por UF), /api/urnas/curva?turno=2&uf=SP, /api/urnas/municipios?uf=SP, /api/urnas/secoes?uf=SP&cd_municipio=71072 (&exportar=1 para CSV)
+- GET ${o}/api/urnas (resumo por UF), /api/urnas/curva?turno=2&uf=SP, /api/urnas/municipios?uf=SP, /api/urnas/secoes?uf=SP&cd_municipio=71072 (&exportar=1 para CSV), /api/urnas/distribuicao?turno=2&visao=horario_voto|tempo_voto|encerramento|duracao (contagem por minuto: votos pelo horário do registro, pelo tempo desde a abertura, pelo encerramento da urna ou pelo tempo de funcionamento; horários de Brasília)
 
 ## Páginas
 - ${o}/estados, ${o}/uf/SP, ${o}/candidato/SQ_CANDIDATO, ${o}/urnas
@@ -257,7 +258,7 @@ export default {
       if (p === "/urnas") { await registrar(env.DB, "pagina", quem.ip); return await paginaUrnas(env, url.origin, url.searchParams); }
       if (p.startsWith("/api/urnas")) {
         const q = Object.fromEntries(url.searchParams), modo = p.split("/")[3] || "resumo";
-        const f = { resumo: resumoUrnas, curva: curvaUrnas, municipios: municipiosUrnas, secoes: secoesUrnas }[modo];
+        const f = { resumo: resumoUrnas, curva: curvaUrnas, municipios: municipiosUrnas, secoes: secoesUrnas, distribuicao: distribuicaoUrnas }[modo];
         if (!f) throw new ErroApi(404, "Use /api/urnas, /api/urnas/curva, /api/urnas/municipios ou /api/urnas/secoes.");
         const r = await f(env, q);
         if (modo === "secoes" && q.exportar) {

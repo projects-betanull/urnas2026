@@ -89,3 +89,39 @@ export function secoesUrnas(env, p = {}) {
   linhas.sort((a, b) => p.ordem === "votos_apos_17h" ? (b.votos_apos_17h ?? -1) - (a.votos_apos_17h ?? -1) : (b.encerramento || "").localeCompare(a.encerramento || ""));
   return { uf, cd_municipio: mun, horario: uf === "ZZ" ? "local" : "Brasília", nota: NOTA, linhas: linhas.slice(0, limite) };
 }
+
+// Distribuições por minuto, para escolher limiares no site. Quatro visões diferentes:
+//  horario_voto  - votos pelo minuto em que foram registrados (horário de Brasília)
+//  tempo_voto    - votos pelo tempo desde a abertura da urna da seção (minutos)
+//  encerramento  - seções (e todos os votos delas) pelo minuto de encerramento da urna (Brasília)
+//  duracao       - seções (e todos os votos delas) pelo tempo de funcionamento: encerramento menos abertura (minutos)
+const seg = c => `(CAST(substr(${c},1,2) AS INT)*3600 + CAST(substr(${c},4,2) AS INT)*60 + CAST(substr(${c},7,2) AS INT))`;
+export function distribuicaoUrnas(env, p = {}) {
+  const U = exigir(env), { turno, uf } = parametros(p);
+  const visao = String(p.visao || "horario_voto");
+  if (!turno) throw new ErroApi(400, "Informe o turno (1 ou 2).");
+  const soma = new Map(), add = (m, v, s = 0) => { const x = soma.get(m) || [0, 0]; x[0] += v; x[1] += s; soma.set(m, x); };
+  const fora = r => !uf && r.uf === "ZZ"; // o Brasil não mistura o exterior, que vota em outro horário
+  let unidade, faltando = [];
+  if (visao === "horario_voto") {
+    unidade = "minuto do dia";
+    for (const r of U.consultar("SELECT uf, minuto, votos FROM voto_minuto_uf", [], { turno, uf })) if (!fora(r)) add(paraMin(r.minuto) - 60 * fz(r.uf), r.votos);
+  } else if (visao === "tempo_voto") {
+    unidade = "minutos desde a abertura";
+    faltando = U.disponiveis().filter(d => d.turno === turno && (!uf || d.uf === uf) && !d.tempo_desde_abertura).map(d => d.uf);
+    for (const r of U.consultarRel("SELECT uf, minutos, SUM(votos) votos FROM voto_rel GROUP BY uf, minutos", [], { turno, uf })) if (!fora(r)) add(r.minutos, r.votos);
+  } else if (visao === "encerramento") {
+    unidade = "minuto do dia";
+    for (const r of U.consultar(`SELECT uf, ${seg("encerramento")} / 60 m, COUNT(*) s, SUM(votos) v FROM secao_tempo WHERE encerramento IS NOT NULL GROUP BY uf, m`, [], { turno, uf }))
+      if (!fora(r)) add(r.m - 60 * fz(r.uf), r.v, r.s);
+  } else if (visao === "duracao") {
+    unidade = "minutos de funcionamento";
+    for (const r of U.consultar(`SELECT uf, (${seg("encerramento")} - ${seg("abertura")}) / 60 m, COUNT(*) s, SUM(votos) v FROM secao_tempo
+        WHERE encerramento IS NOT NULL AND abertura IS NOT NULL AND encerramento > abertura GROUP BY uf, m`, [], { turno, uf }))
+      if (!fora(r)) add(r.m, r.v, r.s);
+  } else throw new ErroApi(400, "visao deve ser horario_voto, tempo_voto, encerramento ou duracao.");
+  const pontos = [...soma].map(([m, [v, s]]) => [m, v, s]).sort((a, b) => a[0] - b[0]);
+  return { visao, turno, uf: uf || "Brasil (sem exterior)", unidade, horario: uf === "ZZ" ? "local" : "Brasília",
+    colunas: ["minuto", "votos", "secoes"], pontos, total_votos: pontos.reduce((a, p) => a + p[1], 0), total_secoes: pontos.reduce((a, p) => a + p[2], 0),
+    ufs_sem_dado: faltando, nota: NOTA };
+}
