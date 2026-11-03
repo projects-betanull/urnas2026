@@ -7,6 +7,7 @@ import {
   cobrar, criarPedido, verificarPedido, saldo, custoConsulta, confirmarComComprovante, cotacaoBRL, LIMITE_SITE,
 } from "./core.js";
 import { SITE_HTML } from "./site.js";
+import { paginaEstados, paginaUF, paginaCandidato, sitemap } from "./paginas.js";
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -200,8 +201,11 @@ export default {
       else if (p.startsWith("/api/") && !quem.site) await registrar(env.DB, "api", quem.ip);
       if (p === "/robots.txt")
         return new Response(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${url.origin}/sitemap.xml\n`, { headers: { "content-type": "text/plain; charset=utf-8" } });
-      if (p === "/sitemap.xml")
-        return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${url.origin}/</loc><changefreq>weekly</changefreq></url><url><loc>${url.origin}/llms.txt</loc></url></urlset>\n`, { headers: { "content-type": "application/xml" } });
+      if (p === "/sitemap.xml") return await sitemap(env.DB, url.origin);
+      if (p === "/estados") { await registrar(env.DB, "pagina", quem.ip); return await paginaEstados(env.DB, url.origin); }
+      let mm;
+      if ((mm = p.match(/^\/uf\/([A-Za-z]{2})\/?$/))) { await registrar(env.DB, "pagina", quem.ip); return await paginaUF(env.DB, url.origin, mm[1]); }
+      if ((mm = p.match(/^\/candidato\/(\d+)/))) { await registrar(env.DB, "pagina", quem.ip); return await paginaCandidato(env.DB, url.origin, mm[1]); }
       if (p === "/llms.txt")
         return new Response(LLMS_TXT(url.origin), { headers: { "content-type": "text/plain; charset=utf-8" } });
       if (p === "/mcp") {

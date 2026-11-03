@@ -99,6 +99,7 @@ dialog::backdrop{background:#0008}.qr{background:#fff;padding:10px;display:inlin
 </main>
 <section class="sobre" style="max-width:1280px;margin:0 auto;padding:0 18px 40px;color:var(--muted)">
 <h2 style="color:var(--ink);font-size:17px">Sobre este site</h2>
+<p>Resultados por estado: <a href="/uf/BR">BR</a> · <a href="/uf/AC">AC</a> · <a href="/uf/AL">AL</a> · <a href="/uf/AM">AM</a> · <a href="/uf/AP">AP</a> · <a href="/uf/BA">BA</a> · <a href="/uf/CE">CE</a> · <a href="/uf/DF">DF</a> · <a href="/uf/ES">ES</a> · <a href="/uf/GO">GO</a> · <a href="/uf/MA">MA</a> · <a href="/uf/MG">MG</a> · <a href="/uf/MS">MS</a> · <a href="/uf/MT">MT</a> · <a href="/uf/PA">PA</a> · <a href="/uf/PB">PB</a> · <a href="/uf/PE">PE</a> · <a href="/uf/PI">PI</a> · <a href="/uf/PR">PR</a> · <a href="/uf/RJ">RJ</a> · <a href="/uf/RN">RN</a> · <a href="/uf/RO">RO</a> · <a href="/uf/RR">RR</a> · <a href="/uf/RS">RS</a> · <a href="/uf/SC">SC</a> · <a href="/uf/SE">SE</a> · <a href="/uf/SP">SP</a> · <a href="/uf/TO">TO</a>.</p>
 <p>Os dados abertos do TSE das eleições gerais de 2026 (presidente, governador, senador, deputado federal, estadual e distrital) chegam em arquivos CSV grandes, separados por estado e codificados em latin-1. Aqui eles já estão carregados e indexados: votos por candidato em cada município, partido, cargo, situação (eleito, 2º turno, não eleito), gênero, instrução, ocupação, cor/raça e patrimônio declarado.</p>
 <p>Monte tabelas dinâmicas, cruze duas dimensões, clique para descer de UF para município ou de cargo para partido e candidato, e exporte em CSV. Navegar é livre.</p>
 <h3 style="color:var(--ink);font-size:15px">Para IA e desenvolvedores</h3>
@@ -237,7 +238,7 @@ async function abrirCandidatoPorNome(rotulo) {
     const d = await (await api("/api/candidato/" + c[0].sq_candidato)).json(); mostrarSaldo(d.cobranca);
     const p = d.candidato[0];
     $("#candBody").innerHTML = `<h2>${p.nome_urna} <span class="muted">(${p.partido} · ${p.cargo} · ${p.uf})</span></h2>
-      <p class="muted">${[p.genero, p.cor_raca, p.instrucao, p.ocupacao].filter(Boolean).join(" · ")}</p>
+      <p class="muted">${[p.genero, p.cor_raca, p.instrucao, p.ocupacao].filter(Boolean).join(" · ")} · <a href="/candidato/${p.sq_candidato}" target="_blank">página para compartilhar</a></p>
       <table><tr><th>Turno</th><th>Situação</th><th>Votos</th></tr>${d.candidato.map(t => `<tr><td>${t.turno}º</td><td>${t.situacao || "–"}</td><td class="num">${fmt(t.votos)}</td></tr>`).join("")}</table>
       <h2 style="margin-top:14px">Patrimônio declarado: R$ ${fmt(d.patrimonio_total)}</h2>
       <table><tr><th>Tipo</th><th>Valor (R$)</th></tr>${d.bens.map(b => `<tr><td>${b.tipo || "–"}</td><td class="num">${fmt(b.valor)}</td></tr>`).join("") || '<tr><td colspan="2">Nenhum bem declarado.</td></tr>'}</table>
