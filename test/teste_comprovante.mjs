@@ -27,3 +27,18 @@ x = await (await post(`/api/creditos/${r.pedido}/comprovante`, { preimage: pre }
 x = await (await post(`/api/creditos/${r.pedido}/comprovante`, { preimage: pre })).json(); assert.equal(x.creditos_na_chave, 2500);
 console.log("comprovante verdadeiro aceito, sem crédito em dobro:", x);
 console.log("OK");
+
+// Recuperar a chave perdida com o comprovante: nova chave com o saldo, antiga invalidada, sem crédito em dobro.
+const pre2 = randomBytes(32).toString("hex");
+const pr2 = faturaFalsa(createHash("sha256").update(Buffer.from(pre2, "hex")).digest("hex"));
+env.FETCH = async u => new Response(JSON.stringify(String(u).includes("lnurlp") ? { callback: "https://coinos.io/cb" } : { pr: pr2 }));
+r = await (await post("/api/creditos", { pacote: "p1" })).json(); const perdida = r.chave;
+x = await post("/api/recuperar", { preimage: randomBytes(32).toString("hex") }); assert.equal(x.status, 404);
+x = await (await post("/api/recuperar", { preimage: pre2 })).json();
+assert.equal(x.creditos, 500); assert.notEqual(x.chave, perdida);
+const saldo = k => worker.fetch(new Request("https://s.test/api/saldo", { headers: { authorization: "Bearer " + k } }), env, {});
+assert.equal((await saldo(perdida)).status, 401);
+assert.equal((await (await saldo(x.chave)).json()).creditos, 500);
+const y = await (await post("/api/recuperar", { preimage: pre2 })).json();
+assert.equal(y.creditos, 500); assert.equal((await saldo(x.chave)).status, 401);
+console.log("recuperação ok: chave nova com 500 créditos, antiga invalidada, sem crédito em dobro");

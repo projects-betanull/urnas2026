@@ -310,3 +310,26 @@ export async function cotacaoBRL(fetcher) {
   } catch {}
   return _cot.v;
 }
+
+// ---------- Recuperar a chave sem conta ----------
+// O comprovante (preimage) só é conhecido por quem pagou. Ele prova a compra, então: confirma o pagamento se ainda
+// estiver pendente, gera uma chave NOVA com todo o saldo da antiga e invalida a antiga (quem tiver a antiga perde o acesso).
+export async function recuperarComComprovante(db, preimage) {
+  const pre = String(preimage || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(pre)) throw new ErroApi(400, "O comprovante deve ter 64 caracteres hexadecimais.");
+  const h = await sha256Hex(pre);
+  let p = null;
+  for (const x of (await db.prepare("SELECT * FROM pagamento ORDER BY criado_em DESC").all()).results) {
+    try { if (paymentHashDaFatura(x.invoice) === h) { p = x; break; } } catch {}
+  }
+  if (!p) throw new ErroApi(404, "Esse comprovante não corresponde a nenhuma compra deste site.");
+  if (p.status !== "pago") {
+    const r = await db.prepare("UPDATE pagamento SET status = 'pago', pago_em = ? WHERE id = ? AND status <> 'pago'").bind(agora(), p.id).run();
+    if (r.meta?.changes) await db.prepare("UPDATE chave SET creditos = creditos + ? WHERE hash = ?").bind(p.creditos, p.chave_hash).run();
+  }
+  const chave = novaChave(), nh = await sha256(chave);
+  await db.prepare("UPDATE chave SET hash = ? WHERE hash = ?").bind(nh, p.chave_hash).run();
+  await db.prepare("UPDATE pagamento SET chave_hash = ? WHERE chave_hash = ?").bind(nh, p.chave_hash).run();
+  const s = await db.prepare("SELECT creditos FROM chave WHERE hash = ?").bind(nh).first();
+  return { chave, creditos: s?.creditos ?? 0, pedido: p.id };
+}

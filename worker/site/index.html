@@ -112,8 +112,21 @@ dialog::backdrop{background:#0008}.qr{background:#fff;padding:10px;display:inlin
   <p class="muted">Sem cadastro: você paga e recebe uma <b>chave</b>, que já vem com o saldo. Guarde a chave: ela vale no site e no servidor MCP. Navegar no site é livre. Os créditos valem para exportar dados (1 crédito a cada 500 linhas) e para consultas pela IA via MCP (1 crédito por consulta, com <span id="cotaTxt"></span> grátis por dia), incluindo dados por seção e por horário de encerramento.</p>
   <div class="pkgs" id="pkgs"></div>
   <div id="pag"></div>
+  <details class="muted" style="margin:10px 0"><summary><b>Como funciona e o que garante seus créditos</b></summary>
+  <ul>
+    <li>Não há conta: a <b>chave é o seu saldo</b>. Quem tem a chave usa os créditos, então guarde-a como guardaria um vale.</li>
+    <li>Ela fica salva neste navegador, mas some se você limpar os dados do navegador ou trocar de aparelho. Copie ou baixe a chave antes de pagar.</li>
+    <li>Pague apenas o QR mostrado nesta tela. Enviar sats direto ao endereço Lightning, sem gerar a cobrança aqui, não vira crédito.</li>
+    <li>A confirmação é automática. Se você fechar a página antes, os créditos entram quando a chave for usada de novo.</li>
+    <li>Perdeu a chave? Sua carteira guarda o <b>comprovante</b> (preimage) de cada pagamento: com ele você gera uma chave nova com todo o saldo, logo abaixo.</li>
+    <li>Créditos não expiram e não são convertidos de volta em dinheiro. Problemas: abra uma issue em github.com/projects-betanull/urnas2026, sem colar sua chave.</li>
+  </ul></details>
   <label for="minhaChave">Já tem uma chave? Cole aqui</label>
   <div class="row"><input id="minhaChave" style="flex:1" placeholder="tse_..."><button class="sec" id="salvarChave">Usar</button></div>
+  <details style="margin-top:10px"><summary class="muted">Perdeu a chave? Recupere com o comprovante do pagamento</summary>
+  <p class="muted">Na carteira, abra o pagamento feito a este site e copie o comprovante (preimage, 64 caracteres). Você recebe uma chave nova com todo o saldo; a antiga deixa de funcionar.</p>
+  <div class="row"><input id="recPre" style="flex:1" placeholder="comprovante do pagamento"><button class="sec" id="btnRec">Recuperar</button></div>
+  <p class="muted" id="recMsg"></p></details>
   <div class="row" style="margin-top:12px"><button class="sec" onclick="dlgCred.close()">Fechar</button></div>
 </dialog>
 <dialog id="dlgMcp">
@@ -268,7 +281,7 @@ async function comprar(pacote) {
   try {
     const r = await (await api("/api/creditos", { method: "POST", body: JSON.stringify({ pacote }) })).json();
     if (r.chave) gravarChave(r.chave);
-    $("#pag").innerHTML = `${r.chave ? `<div class="msg">Sua chave (guarde-a): <code>${r.chave}</code></div>` : ""}
+    $("#pag").innerHTML = `${r.chave ? `<div class="msg"><b>Sua chave é o seu saldo. Guarde-a antes de pagar:</b><br><code id="chNova">${r.chave}</code><br><a href="#" id="copCh">Copiar chave</a> · <a href="#" id="baixCh">Baixar como arquivo</a></div>` : ""}
       <div class="row" style="align-items:flex-start"><div class="qr" id="qr"></div><div style="flex:1;min-width:220px">
       <p>Pague <b>${fmt(r.sats)} sats</b> para receber <b>${fmt(r.creditos)} créditos</b>.</p>
       <p><a href="lightning:${r.invoice}">Abrir na carteira</a> · <a href="#" id="copInv">Copiar cobrança</a></p>
@@ -276,6 +289,12 @@ async function comprar(pacote) {
       <details ${r.confirmacao_automatica ? "" : "open"}><summary class="muted">${r.confirmacao_automatica ? "Não confirmou? Use o comprovante" : "Depois de pagar, cole o comprovante"}</summary>
       <p class="muted">Na sua carteira, abra o pagamento e copie o <b>comprovante</b> (também chamado de preimage ou prova de pagamento, com 64 caracteres).</p>
       <div class="row"><input id="preimg" style="flex:1" placeholder="comprovante do pagamento"><button id="btnPre">Confirmar</button></div></details></div></div>`;
+    if (r.chave) {
+      $("#copCh").onclick = async e => { e.preventDefault(); try { await navigator.clipboard.writeText(r.chave); e.target.textContent = "Copiada"; } catch {} };
+      $("#baixCh").onclick = e => { e.preventDefault(); const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([`Chave de créditos de urnas2026.duckdns.org\n${r.chave}\n\nPedido ${r.pedido}, ${r.sats} sats, ${r.creditos} créditos.\nUse no site (Créditos > Já tem uma chave) ou no MCP: Authorization: Bearer ${r.chave}\n`], { type: "text/plain" }));
+        a.download = "chave-urnas2026.txt"; a.click(); };
+    }
     try { new QRCode($("#qr"), { text: "lightning:" + r.invoice.toUpperCase(), width: 200, height: 200 }); } catch { $("#qr").remove(); }
     $("#copInv").onclick = async e => { e.preventDefault(); try { await navigator.clipboard.writeText(r.invoice); e.target.textContent = "Copiada"; } catch {} };
     $("#btnPre").onclick = async () => {
@@ -293,6 +312,13 @@ async function comprar(pacote) {
     setTimeout(() => clearInterval(t), 15 * 60 * 1000);
   } catch (e) { $("#pag").innerHTML = `<div class="msg err">${e.message}</div>`; }
 }
+$("#btnRec").onclick = async () => {
+  try {
+    const r = await (await api("/api/recuperar", { method: "POST", body: JSON.stringify({ preimage: $("#recPre").value }) })).json();
+    gravarChave(r.chave); atualizarSaldo();
+    $("#recMsg").innerHTML = `Nova chave (guarde-a): <code>${r.chave}</code><br>Saldo: ${fmt(r.creditos)} créditos.`;
+  } catch (e) { $("#recMsg").textContent = e.message; }
+};
 $("#salvarChave").onclick = () => { gravarChave($("#minhaChave").value.trim()); atualizarSaldo(); dlgCred.close(); };
 $("#btnCreditos").onclick = abrirCreditos;
 $("#btnMcp").onclick = () => { $("#mcpUrl").textContent = location.origin + "/mcp"; dlgMcp.showModal(); };

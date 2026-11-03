@@ -1,6 +1,6 @@
 import { registrar, resumo, htmlPainel, chaveDoPainelOk } from "./uso.js";
 // Cloudflare Worker: site, API REST, servidor MCP (HTTP) e créditos em Lightning.
-import { conferirPendentes } from "./core.js";
+import { conferirPendentes, recuperarComComprovante } from "./core.js";
 import {
   DIMENSOES, MEDIDAS, HIERARQUIAS, PACOTES, COTA_GRATIS, ErroApi,
   explorar, pivotar, buscarCandidatos, detalharCandidato, valoresDimensao,
@@ -233,6 +233,10 @@ export default {
       if (p === "/api/creditos" && req.method === "POST") {
         const b = await req.json();
         return json(await criarPedido(env.DB, env, fetcher, { pacote: b.pacote, chaveExistente: quem.chave }));
+      }
+      if (p === "/api/recuperar" && req.method === "POST") {
+        const b = await req.json().catch(() => ({}));
+        return json(await recuperarComComprovante(env.DB, b.preimage));
       }
       if (p.startsWith("/api/creditos/") && p.endsWith("/comprovante") && req.method === "POST")
         return json(await confirmarComComprovante(env.DB, p.split("/")[3], (await req.json()).preimage));
