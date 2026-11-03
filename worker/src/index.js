@@ -1,3 +1,4 @@
+import { registrar, resumo, htmlPainel, chaveDoPainelOk } from "./uso.js";
 // Cloudflare Worker: site, API REST, servidor MCP (HTTP) e créditos em Lightning.
 import {
   DIMENSOES, MEDIDAS, HIERARQUIAS, PACOTES, COTA_GRATIS, ErroApi,
@@ -120,6 +121,10 @@ async function mcp(req, env, ctx, quem) {
     const { id, method, params } = m;
     if (id === undefined || id === null) return null; // notificação
     try {
+      if (method === "initialize") {
+        const cli = String(params?.clientInfo?.name || "desconhecido").slice(0, 40).replace(/[^\w .\-]/g, "");
+        await registrar(env.DB, "mcp_sessao", quem.ip); await registrar(env.DB, "mcp_cliente:" + cli);
+      }
       if (method === "initialize") return { jsonrpc: "2.0", id, result: {
         protocolVersion: params?.protocolVersion || "2025-06-18",
         capabilities: { tools: { listChanged: false } },
@@ -129,6 +134,8 @@ async function mcp(req, env, ctx, quem) {
       if (method === "ping") return { jsonrpc: "2.0", id, result: {} };
       if (method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: FERRAMENTAS } };
       if (method === "tools/call") {
+        await registrar(env.DB, "mcp_consulta", quem.ip);
+        await registrar(env.DB, "mcp_ferramenta:" + String(params?.name || "?").slice(0, 40));
         try {
           const r = await chamarFerramenta(env, ctx, params?.name, params?.arguments || {}, quem);
           return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(r) }], structuredContent: r } };
@@ -181,6 +188,12 @@ export default {
     try {
       if (p === "/" || p === "/index.html")
         return new Response(SITE_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "max-age=300" } });
+      if (p === "/painel") {
+        if (!(await chaveDoPainelOk(url.searchParams.get("k")))) return new Response("Não encontrado", { status: 404 });
+        return new Response(htmlPainel(await resumo(env.DB)), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
+      if (p === "/api/meta" && quem.site) await registrar(env.DB, "site", quem.ip);
+      else if (p.startsWith("/api/") && !quem.site) await registrar(env.DB, "api", quem.ip);
       if (p === "/robots.txt")
         return new Response(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${url.origin}/sitemap.xml\n`, { headers: { "content-type": "text/plain; charset=utf-8" } });
       if (p === "/sitemap.xml")
@@ -201,6 +214,7 @@ export default {
       if (p === "/api/explorar" && req.method === "POST") {
         const params = await req.json();
         const { piv, cobranca } = await consultaExplorar(env, ctx, params, quem);
+        if (params.exportar) await registrar(env.DB, "export", quem.ip);
         if (params.exportar) return new Response(csv(piv), { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="eleicoes2026.csv"', ...CORS } });
         return json({ ...piv, cobranca });
       }
