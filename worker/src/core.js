@@ -234,7 +234,18 @@ export async function verificarPedido(db, fetcher, id) {
   return { pedido: p.id, status: p.status, creditos_na_chave: s?.creditos ?? 0 };
 }
 
-export async function saldo(db, chave) {
+// Confere pedidos pendentes (de uma chave ou de todos): quem pagou e fechou a página antes da confirmação recebe os créditos mesmo assim.
+// Pedidos com mais de 24 h sem pagamento passam a "expirado" (a fatura Lightning já venceu).
+export async function conferirPendentes(db, fetcher, chaveHash) {
+  const lim = new Date(Date.now() - 864e5).toISOString();
+  await db.prepare("UPDATE pagamento SET status = 'expirado' WHERE status = 'pendente' AND criado_em < ?").bind(lim).run();
+  const q = chaveHash ? db.prepare("SELECT id FROM pagamento WHERE status = 'pendente' AND chave_hash = ?").bind(chaveHash)
+                      : db.prepare("SELECT id FROM pagamento WHERE status = 'pendente' LIMIT 50");
+  for (const { id } of (await q.all()).results) { try { await verificarPedido(db, fetcher, id); } catch {} }
+}
+
+export async function saldo(db, chave, fetcher) {
+  if (fetcher) await conferirPendentes(db, fetcher, await sha256(chave));
   const s = await db.prepare("SELECT creditos FROM chave WHERE hash = ?").bind(await sha256(chave)).first();
   if (!s) throw new ErroApi(401, "Chave inválida.");
   return { creditos: s.creditos };

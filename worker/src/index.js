@@ -1,5 +1,6 @@
 import { registrar, resumo, htmlPainel, chaveDoPainelOk } from "./uso.js";
 // Cloudflare Worker: site, API REST, servidor MCP (HTTP) e créditos em Lightning.
+import { conferirPendentes } from "./core.js";
 import {
   DIMENSOES, MEDIDAS, HIERARQUIAS, PACOTES, COTA_GRATIS, ErroApi,
   explorar, pivotar, buscarCandidatos, detalharCandidato, valoresDimensao,
@@ -108,7 +109,7 @@ async function chamarFerramenta(env, ctx, nome, args, quem) {
     case "valores_dimensao":
       return { dimensao: args.dimensao, valores: await valoresDimensao(env.DB, args.dimensao, args.uf) };
     case "saldo":
-      return quem.chave ? { ...(await saldo(env.DB, quem.chave)), cota_gratis_diaria: COTA_GRATIS } : { mensagem: "Sem chave: usando a cota grátis diária.", cota_gratis_diaria: COTA_GRATIS };
+      return quem.chave ? { ...(await saldo(env.DB, quem.chave, env.FETCH || fetch)), cota_gratis_diaria: COTA_GRATIS } : { mensagem: "Sem chave: usando a cota grátis diária.", cota_gratis_diaria: COTA_GRATIS };
     default:
       throw new ErroApi(400, `Ferramenta desconhecida: ${nome}`);
   }
@@ -190,6 +191,7 @@ export default {
         return new Response(SITE_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "max-age=300" } });
       if (p === "/painel") {
         if (!(await chaveDoPainelOk(url.searchParams.get("k")))) return new Response("Não encontrado", { status: 404 });
+        await conferirPendentes(env.DB, fetcher);
         return new Response(htmlPainel(await resumo(env.DB)), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
       }
       if (p === "/api/meta" && quem.site) await registrar(env.DB, "site", quem.ip);
@@ -227,7 +229,7 @@ export default {
         const r = await detalharCandidato(env.DB, decodeURIComponent(p.split("/").pop()));
         return json({ ...r, cobranca: await cobrar(env.DB, { ...quem, custo: 1 }) });
       }
-      if (p === "/api/saldo") return json(quem.chave ? await saldo(env.DB, quem.chave) : { creditos: null, cota_gratis_diaria: COTA_GRATIS });
+      if (p === "/api/saldo") return json(quem.chave ? await saldo(env.DB, quem.chave, fetcher) : { creditos: null, cota_gratis_diaria: COTA_GRATIS });
       if (p === "/api/creditos" && req.method === "POST") {
         const b = await req.json();
         return json(await criarPedido(env.DB, env, fetcher, { pacote: b.pacote, chaveExistente: quem.chave }));
