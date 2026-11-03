@@ -1,4 +1,4 @@
-import { registrar, resumo, htmlPainel, chaveDoPainelOk } from "./uso.js";
+import { registrar, registrarErro, resumo, htmlPainel, chaveDoPainelOk } from "./uso.js";
 // Cloudflare Worker: site, API REST, servidor MCP (HTTP) e créditos em Lightning.
 import { conferirPendentes, recuperarComComprovante } from "./core.js";
 import {
@@ -141,6 +141,8 @@ async function mcp(req, env, ctx, quem) {
           const r = await chamarFerramenta(env, ctx, params?.name, params?.arguments || {}, quem);
           return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(r) }], structuredContent: r } };
         } catch (e) {
+          if (e instanceof ErroApi) await registrar(env.DB, "recusa:mcp " + e.status + " " + String(e.message).slice(0, 50));
+          else await registrarErro(env.DB, "mcp:" + (params?.name || "?"), e);
           return { jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text", text: e.message }] } };
         }
       }
@@ -192,7 +194,7 @@ export default {
       if (p === "/painel") {
         if (!(await chaveDoPainelOk(url.searchParams.get("k")))) return new Response("Não encontrado", { status: 404 });
         await conferirPendentes(env.DB, fetcher);
-        return new Response(htmlPainel(await resumo(env.DB)), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+        return new Response(htmlPainel(await resumo(env.DB), env.VERSAO || ""), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
       }
       if (p === "/api/meta" && quem.site) await registrar(env.DB, "site", quem.ip);
       else if (p.startsWith("/api/") && !quem.site) await registrar(env.DB, "api", quem.ip);
@@ -244,7 +246,8 @@ export default {
       return json({ erro: "Não encontrado" }, 404);
     } catch (e) {
       const status = e instanceof ErroApi ? e.status : 500;
-      if (status === 500) console.error(e);
+      if (status === 500) { console.error(e); await registrarErro(env.DB, req.method + " " + p, e); }
+      else if (status !== 404) await registrar(env.DB, "recusa:" + p + " " + status + " " + String(e.message).slice(0, 50));
       return json({ erro: status === 500 ? "Erro interno." : e.message }, status);
     }
   },

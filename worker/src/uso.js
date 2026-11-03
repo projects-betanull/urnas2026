@@ -9,7 +9,20 @@ async function preparar(db) {
   if (pronto) return;
   await db.prepare("CREATE TABLE IF NOT EXISTS uso (dia TEXT NOT NULL, tipo TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (dia, tipo))").run();
   await db.prepare("CREATE TABLE IF NOT EXISTS uso_unico (dia TEXT NOT NULL, tipo TEXT NOT NULL, ip_hash TEXT NOT NULL, PRIMARY KEY (dia, tipo, ip_hash))").run();
+  await db.prepare("CREATE TABLE IF NOT EXISTS erro (dia TEXT NOT NULL, rota TEXT NOT NULL, mensagem TEXT NOT NULL, n INTEGER NOT NULL, ultimo TEXT, PRIMARY KEY (dia, rota, mensagem))").run();
   pronto = true;
+}
+
+// Erros internos (500 e falhas de ferramenta MCP), agregados por dia, rota e mensagem, com o arquivo:linha de origem.
+export async function registrarErro(db, rota, e) {
+  try {
+    await preparar(db);
+    const onde = (String(e?.stack || "").split("\n").find(l => l.includes("/worker/src/")) || "").replace(/^.*\/worker\/src\//, "").replace(/\)$/, "");
+    const msg = (String(e?.message || e).slice(0, 160) + (onde ? ` @ ${onde}` : "")).replace(/tse_[0-9a-f]+/g, "tse_…");
+    const agora = new Date().toISOString();
+    await db.prepare("INSERT INTO erro (dia, rota, mensagem, n, ultimo) VALUES (?, ?, ?, 1, ?) ON CONFLICT (dia, rota, mensagem) DO UPDATE SET n = n + 1, ultimo = excluded.ultimo")
+      .bind(agora.slice(0, 10), String(rota).slice(0, 60), msg, agora).run();
+  } catch {}
 }
 
 // tipo: site | api | mcp_sessao | mcp_consulta | mcp_ferramenta:<nome> | mcp_cliente:<nome> | export
@@ -33,12 +46,13 @@ export async function resumo(db, dias = 30) {
   const unicos = (await db.prepare("SELECT dia, tipo, COUNT(*) u FROM uso_unico WHERE dia >= ? GROUP BY dia, tipo").bind(desde).all()).results;
   let pag = [];
   try { pag = (await db.prepare("SELECT substr(criado_em,1,10) dia, status, COUNT(*) q, SUM(sats) sats FROM pagamento GROUP BY 1, 2 ORDER BY 1 DESC LIMIT 60").all()).results; } catch {}
-  return { linhas, unicos, pagamentos: pag };
+  const erros = (await db.prepare("SELECT dia, rota, mensagem, n, ultimo FROM erro WHERE dia >= ? ORDER BY ultimo DESC LIMIT 50").bind(desde).all()).results;
+  return { linhas, unicos, pagamentos: pag, erros };
 }
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-export function htmlPainel(r) {
+export function htmlPainel(r, versao = "") {
   const dias = [...new Set(r.linhas.map(l => l.dia))];
   const val = (d, t) => r.linhas.find(l => l.dia === d && l.tipo === t)?.n || 0;
   const uni = (d, t) => r.unicos.find(l => l.dia === d && l.tipo === t)?.u || 0;
@@ -59,9 +73,13 @@ ${tabela(["Dia", "Visitas", "Visitantes", "Conexões MCP", "Consultas MCP", "Usu
 ${tabela(["Ferramenta", "Chamadas"], extras("mcp_ferramenta:"))}
 <h2>Programas que conectaram ao MCP</h2>
 ${tabela(["Cliente", "Conexões"], extras("mcp_cliente:"))}
+<h2>Erros internos</h2>
+${tabela(["Último", "Rota", "Erro", "Vezes"], (r.erros || []).map(e => [e.ultimo.slice(0, 16).replace("T", " "), e.rota, e.mensagem, e.n]))}
+<h2>Recusas de consulta (cota, chave inválida etc.)</h2>
+${tabela(["Motivo", "Vezes"], extras("recusa:"))}
 <h2>Pagamentos</h2>
 ${tabela(["Dia", "Situação", "Pedidos", "Sats"], r.pagamentos.map(p => [p.dia, p.status, p.q, p.sats || 0]))}
-<p><small>Visitantes e usuários contados por hash diário do IP; nenhum IP é guardado. Atualize a página para ver números novos.</small></p></body></html>`;
+<p><small>Versão no ar: ${esc(versao.slice(0, 7) || "?")}. Visitantes e usuários contados por hash diário do IP; nenhum IP é guardado. Atualize a página para ver números novos.</small></p></body></html>`;
 }
 
 // Backup só dos saldos: hash da chave (irreversível) + créditos, e os pedidos com o payment hash

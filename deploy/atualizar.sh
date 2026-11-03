@@ -8,6 +8,5 @@ cd $DIR; git fetch --depth 1 origin main -q; NOVO=$(git rev-parse origin/main); 
 [ "$NOVO" = "$ATUAL" ] && exit 0
 git reset --hard -q origin/main
 for d in worker etl test build.py schema.sql deploy; do rm -rf "$APP/$d"; cp -r "$DIR/$d" "$APP/"; done
-cd $APP && python3 build.py >/dev/null && systemctl restart eleicoes
-echo "$NOVO" > /srv/eleicoes/versao
+cd $APP && python3 build.py >/dev/null && echo "$NOVO" > /srv/eleicoes/versao && systemctl restart eleicoes
 echo "$(date -u +%FT%TZ) site atualizado para a versao ${NOVO:0:7}" >> /srv/eleicoes/status.txt
