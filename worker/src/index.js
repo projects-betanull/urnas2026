@@ -10,7 +10,7 @@ import { SITE_HTML } from "./site.js";
 import { paginaEstados, paginaUF, paginaCandidato, sitemap } from "./paginas.js";
 import { resumoUrnas, curvaUrnas, municipiosUrnas, secoesUrnas, distribuicaoUrnas } from "./urnas.js";
 import { paginaUrnas } from "./pagina_urnas.js";
-import { explorarUrnas, valoresUrnas, DIM_URNAS, MED_URNAS, HIER_URNAS } from "./explorar_urnas.js";
+import { explorarUrnas, valoresUrnas, DIM_URNAS, MED_URNAS, HIER_URNAS, CARGOS_URNAS } from "./explorar_urnas.js";
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -99,6 +99,7 @@ const FERRAMENTAS = [
       colunas: { type: "string", enum: Object.keys(DIM_URNAS), description: "modo=explorar: dimensão nas colunas (opcional)." },
       filtros: { type: "object", description: "modo=explorar: {dimensão: [valores]}, ex.: {\"uf\":[\"BA\"],\"turno\":[\"1\"]}." },
       limiar_hora: { type: "string", description: "modo=explorar: horário de Brasília HH:MM (padrão 17:00). Votos por seção: a partir de 16:00." },
+      cargo: { type: "string", enum: Object.keys(CARGOS_URNAS), description: "modo=explorar com medidas votos_candidato/pct_votos_candidato ou dimensão candidato: cargo (padrão PRESIDENTE). Cruza horários das urnas com o boletim de cada seção." },
       limiar_tempo: { type: "string", description: "modo=explorar: tempo de urna aberta H:MM (padrão 9:00). Votos por seção: a partir de 8:00." },
       passo: { type: "integer", description: "modo=explorar: largura das faixas em minutos (5, 10, 15, 30, 60)." },
       visao: { type: "string", enum: ["horario_voto", "tempo_voto", "encerramento", "duracao"], description: "modo=distribuicao: horario_voto (votos pelo minuto do registro, Brasília), tempo_voto (votos pelo tempo desde a abertura da urna), encerramento (urnas e seus votos pelo minuto de encerramento, Brasília), duracao (urnas e seus votos pelo tempo de funcionamento). Exige turno. Devolve [minuto, votos, secoes] por minuto." },
@@ -137,7 +138,7 @@ async function chamarFerramenta(env, ctx, nome, args, quem) {
       if (args.modo === "explorar") {
         const r = await explorarUrnas(env, args);
         const piv = pivotar(r, { limite: Math.min(Number(args.limite) || 50, 500), ordem: args.ordem });
-        return { ...piv, limiar_hora: r.limiar_hora, limiar_tempo: r.limiar_tempo, sem_dado_por_secao: r.sem_dado_por_secao, cobranca: await cobrar(env.DB, { ...quem, custo: 1 }) };
+        return { ...piv, limiar_hora: r.limiar_hora, limiar_tempo: r.limiar_tempo, sem_dado_por_secao: r.sem_dado_por_secao, cargo: r.cargo, sem_votos_por_secao: r.sem_votos_por_secao, cobranca: await cobrar(env.DB, { ...quem, custo: 1 }) };
       }
       const f = { resumo: resumoUrnas, curva: curvaUrnas, municipios: municipiosUrnas, secoes: secoesUrnas, distribuicao: distribuicaoUrnas }[args.modo];
       if (!f) throw new ErroApi(400, "modo deve ser resumo, curva, municipios, secoes ou distribuicao.");
@@ -260,7 +261,7 @@ export default {
           pacotes: await (async () => { const c = await cotacaoBRL(fetcher); return Object.fromEntries(Object.entries(PACOTES).map(([k, p]) => [k, { ...p, reais: c ? Math.round(p.sats / 1e8 * c * 100) / 100 : null }])); })(),
           pagamentos_ativos: !!env.LN_ADDRESS,
           urnas: env.URNAS ? { dimensoes: DIM_URNAS, medidas: Object.fromEntries(Object.entries(MED_URNAS).map(([k, v]) => [k, v.rotulo])),
-            formatos: Object.fromEntries(Object.entries(MED_URNAS).filter(([, v]) => v.formato).map(([k, v]) => [k, v.formato])), hierarquias: HIER_URNAS,
+            formatos: Object.fromEntries(Object.entries(MED_URNAS).filter(([, v]) => v.formato).map(([k, v]) => [k, v.formato])), hierarquias: HIER_URNAS, cargos: CARGOS_URNAS,
             disponiveis: env.URNAS.disponiveis() } : null });
       }
       if (p === "/api/explorar" && req.method === "POST") {
@@ -276,7 +277,7 @@ export default {
         const b = await req.json().catch(() => ({})), exportar = !!b.exportar;
         const r = await explorarUrnas(env, b);
         const piv = pivotar(r, { limite: Math.min(Number(b.limite) || (exportar ? 50000 : 50), exportar ? 100000 : 500), maxColunas: Number(b.max_colunas) || 12, ordem: b.ordem });
-        Object.assign(piv, { limiar_hora: r.limiar_hora, limiar_tempo: r.limiar_tempo, passo: r.passo, sem_dado_por_secao: r.sem_dado_por_secao });
+        Object.assign(piv, { limiar_hora: r.limiar_hora, limiar_tempo: r.limiar_tempo, passo: r.passo, sem_dado_por_secao: r.sem_dado_por_secao, cargo: r.cargo, sem_votos_por_secao: r.sem_votos_por_secao });
         const cobranca = await cobrar(env.DB, { ...quem, site: quem.site && !exportar, custo: custoConsulta(exportar, piv.linhas.length) });
         if (exportar) { await registrar(env.DB, "export", quem.ip); return new Response(csv(piv), { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="urnas2026.csv"', ...CORS } }); }
         return json({ ...piv, cobranca });

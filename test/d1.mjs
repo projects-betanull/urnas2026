@@ -22,8 +22,14 @@ export function abrirD1(caminho) {
 import { readdirSync, existsSync, createReadStream, renameSync, rmSync } from "node:fs";
 import { createGunzip } from "node:zlib";
 import { createInterface } from "node:readline";
-export function abrirUrnas(pasta) {
+export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "") + "/secao") {
   const abertas = new Map();
+  // Bases de votos por seção (etl/secao.py): <UF>_secao.db (governador, senador) e BR_secao.db (presidente).
+  const abrirSecao = uf => {
+    const f = `${uf}_secao.db`; let b = abertas.get(f);
+    if (b === undefined) { b = null; if (existsSync(pastaSecao + "/" + f)) { try { b = new DatabaseSync(pastaSecao + "/" + f, { readOnly: true }); } catch {} } if (b) abertas.set(f, b); }
+    return b;
+  };
   const bases = () => {
     let nomes = [];
     try { nomes = readdirSync(pasta).filter(f => /^[12]t_[A-Z]{2}_tempos\.db$/.test(f)); } catch {}
@@ -48,6 +54,24 @@ export function abrirUrnas(pasta) {
     return out;
   };
   return {
+    // Votos por seção num cargo para uma base (turno, UF): Map "mun|zona|secao" -> [[nr_votavel, qt], ...] e nomes.
+    // Brancos, nulos e anulados (95–98) ficam de fora. Devolve null se a base de seções não existe.
+    votosSecao(turno, uf, cargo) {
+      const b = bases().find(x => x.turno === Number(turno) && x.uf === uf); if (!b) return null;
+      const sb = abrirSecao(cargo === "PRESIDENTE" ? "BR" : uf); if (!sb) return null;
+      const mapa = new Map(), nomes = new Map();
+      let sql = "SELECT cd_municipio, zona, secao, nr_votavel, qt FROM voto_secao WHERE turno = ? AND cargo = ? AND nr_votavel NOT IN ('95','96','97','98')", par = [Number(turno), cargo];
+      if (cargo === "PRESIDENTE") {
+        const muns = b.db.prepare("SELECT DISTINCT cd_municipio FROM secao_tempo").all().map(r => r.cd_municipio);
+        if (!muns.length) return { mapa, nomes };
+        sql += ` AND cd_municipio IN (${muns.map(() => "?").join(",")})`; par = par.concat(muns);
+      }
+      for (const r of sb.prepare(sql).iterate(...par)) {
+        const k = `${r.cd_municipio}|${r.zona}|${r.secao}`; let a = mapa.get(k); if (!a) mapa.set(k, a = []); a.push([r.nr_votavel, r.qt]);
+      }
+      for (const r of sb.prepare("SELECT nr_votavel, nm_votavel FROM votavel WHERE cargo = ?").iterate(cargo)) nomes.set(r.nr_votavel, r.nm_votavel);
+      return { mapa, nomes };
+    },
     disponiveis: () => bases().map(b => ({ turno: b.turno, uf: b.uf, tempo_desde_abertura: !!b.rel, votos_por_secao_apos_limiar: b.relVersao >= 2 })),
     // Fecha a base derivada aberta (para trocar o arquivo por uma versão nova).
     soltar(nome) { const x = abertas.get(nome); if (x) { try { x.close(); } catch {} abertas.delete(nome); } },
