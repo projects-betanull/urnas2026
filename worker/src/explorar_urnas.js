@@ -68,6 +68,8 @@ export async function explorarUrnas(env, p) {
   const nm = await nomes(env.DB);
   const ufsFiltro = filtros.uf ? [...filtros.uf] : null;
   const cel = new Map(), semCauda = new Set(), semSecao = new Set();
+  // Com a dimensão Candidato, cada seção entra uma vez por candidato: os totais de % usam os válidos da seção uma vez só.
+  const denL = new Map(), denG = [0]; const candDim = linhaDim === "candidato" || colDim === "candidato";
   const dimDe = (d, s, ctx) => {
     switch (d) {
       case "turno": return String(ctx.turno);
@@ -113,11 +115,14 @@ export async function explorarUrnas(env, p) {
           let n = 0; for (const [nr, q] of vv) if (!fc || fc.has(ctx.vs.nomes.get(nr) || nr)) n += sm ? q - validos * (sm.get(nr) || 0) : q;
           return add(dimDe(linhaDim, s, ctx), colDim ? dimDe(colDim, s, ctx) : null, n, validos);
         }
+        const vistas = new Set(); let algum = false;
         for (const [nr, q] of vv) {
           s.cand = ctx.vs.nomes.get(nr) || nr; if (fc && !fc.has(s.cand)) continue;
+          const lr = dimDe(linhaDim, s, ctx); if (!vistas.has(lr)) { vistas.add(lr); denL.set(lr, (denL.get(lr) || 0) + validos); } algum = true;
           const sm = ctx.share?.get(s.cd_municipio);
-          add(dimDe(linhaDim, s, ctx), colDim ? dimDe(colDim, s, ctx) : null, sm ? q - validos * (sm.get(nr) || 0) : q, validos);
+          add(lr, colDim ? dimDe(colDim, s, ctx) : null, sm ? q - validos * (sm.get(nr) || 0) : q, validos);
         }
+        if (algum) denG[0] += validos;
         return;
       }
       for (const [k, set] of Object.entries(filtros)) if (k !== "turno" && !set.has(dimDe(k, s, ctx))) return;
@@ -147,7 +152,8 @@ export async function explorarUrnas(env, p) {
     const t = totL.get(l) || [0, 0]; t[0] += x[0]; t[1] += x[1]; totL.set(l, t); tot[0] += x[0]; tot[1] += x[1];
   }
   const r = { linhas, medida, linhaDim, colDim, filtros: Object.fromEntries(Object.entries(filtros).map(([k, v]) => [k, [...v]])),
-    totLinha: tipo === "soma" ? null : Object.fromEntries([...totL].map(([l, x]) => [l, val(x)])), valorGeral: val(tot), tipo,
+    totLinha: tipo === "soma" ? null : Object.fromEntries([...totL].map(([l, x]) => [l, val(candDim && porCand ? [x[0], denL.get(l) || 0] : x)])),
+    valorGeral: val(candDim && porCand && tipo !== "soma" ? [tot[0], denG[0]] : tot), tipo,
     limiar_hora: hm(limH), limiar_tempo: dur(limT), passo, sem_dado_por_secao: [...semCauda],
     ...(porCand ? { cargo, sem_votos_por_secao: [...semSecao] } : {}) };
   cacheR.set(chave, { t: Date.now(), r }); if (cacheR.size > 200) cacheR.delete(cacheR.keys().next().value);

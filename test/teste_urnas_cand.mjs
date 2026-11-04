@@ -11,6 +11,8 @@ assert.ok(tot["CANDIDATO A"] > 0 && tot["CANDIDATO B"] > 0, JSON.stringify(r.lin
 assert.ok(!("BRANCO" in tot), "brancos fora dos válidos");
 const p = await explorarUrnas(env, { medida: "pct_votos_candidato", linhas: "encerrou_apos", colunas: "candidato", filtros: { turno: ["2"] }, limiar_hora: "17:30" });
 const soma = {}; for (const l of p.linhas) soma[l.linha] = (soma[l.linha] || 0) + l.valor;
+for (const v of Object.values(p.totLinha)) assert.ok(Math.abs(v - 100) < 1e-6, "total da linha = 100%");
+assert.ok(Math.abs(p.valorGeral - 100) < 1e-6);
 for (const v of Object.values(soma)) assert.ok(Math.abs(v - 100) < 1e-6, "percentuais somam 100 por linha");
 const a = l => p.linhas.find(x => x.linha.startsWith(l) && x.coluna === "CANDIDATO A").valor;
 assert.ok(a("Encerrou a partir") > a("Encerrou antes"), "urnas que fecham tarde (cidade grande) favorecem A no exemplo");
