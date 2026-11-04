@@ -6,8 +6,16 @@ set -uo pipefail
 BASE=/srv/eleicoes; T=$BASE/logs_tmp; OUT=$BASE/logs; mkdir -p $T $OUT
 st(){ echo "$(date -u +%FT%TZ) $*" >> $BASE/status.txt; }
 falhas=0
+# Bases das UFs com fuso diferente de Brasília processadas antes da correção (sem meta apos_17h=brasilia) são refeitas
+# numa segunda passada, depois de todas as que faltam.
+fuso_antigo(){ case $2 in AC|AM|RO|RR|MT|MS) python3 -c "import sqlite3,sys;d=sqlite3.connect('file:$OUT/$1_$2_tempos.db?mode=ro',uri=True)
+try: v=d.execute(\"select valor from meta where chave='apos_17h'\").fetchone()
+except Exception: v=None
+sys.exit(0 if not v or v[0]!='brasilia' else 1)";; *) return 1;; esac; }
+for passada in faltando refazer; do
 for turno in 1t 2t; do for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO ZZ; do
-  [ -f $OUT/${turno}_${uf}_tempos.db ] && continue
+  if [ $passada = faltando ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && continue
+  else [ -f $OUT/${turno}_${uf}_tempos.db ] && fuso_antigo $turno $uf || continue; st "logs ${turno} ${uf}: refazendo com o fuso corrigido"; fi
   livre=$(df --output=avail -BG $BASE | tail -1 | tr -dc 0-9)
   if [ "${livre:-0}" -lt 15 ]; then st "logs pausados: só ${livre} GB livres no disco"; exit 1; fi
   st "logs ${turno} ${uf}: baixando"
@@ -22,5 +30,5 @@ for turno in 1t 2t; do for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE
     st "logs ${turno} ${uf}: falha no processamento"; rm -f $OUT/${turno}_${uf}_tempos.db; falhas=$((falhas+1))
   fi
   rm -f $T/*.zip
-done; done
+done; done; done
 [ $falhas -eq 0 ] && st "logs: todas as UFs processadas" || exit 1

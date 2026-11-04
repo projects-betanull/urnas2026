@@ -5,8 +5,8 @@ After=network-online.target
 [Service]
 Type=simple
 ExecStart=/bin/bash /srv/eleicoes/app/deploy/logs_todos.sh
-Restart=on-failure
-RestartSec=600
+Restart=always
+RestartSec=1800
 Nice=10
 [Install]
 WantedBy=multi-user.target
