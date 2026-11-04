@@ -1,0 +1,6 @@
+[Unit]
+Description=Backup diario dos saldos (Object Storage privado)
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/eleicoes/app/deploy
+ExecStart=/bin/bash -c '/usr/bin/node --no-warnings backup_saldos.mjs >> /srv/eleicoes/status.txt 2>&1'
