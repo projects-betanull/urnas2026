@@ -52,7 +52,7 @@ export async function resumo(db, dias = 30) {
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-export function htmlPainel(r, versao = "") {
+export function htmlPainel(r, versao = "", sd = null) {
   const dias = [...new Set(r.linhas.map(l => l.dia))];
   const val = (d, t) => r.linhas.find(l => l.dia === d && l.tipo === t)?.n || 0;
   const uni = (d, t) => r.unicos.find(l => l.dia === d && l.tipo === t)?.u || 0;
@@ -77,6 +77,12 @@ ${tabela(["Cliente", "Conexões"], extras("mcp_cliente:"))}
 ${tabela(["Último", "Rota", "Erro", "Vezes"], (r.erros || []).map(e => [e.ultimo.slice(0, 16).replace("T", " "), e.rota, e.mensagem, e.n]))}
 <h2>Recusas de consulta (cota, chave inválida etc.)</h2>
 ${tabela(["Motivo", "Vezes"], extras("recusa:"))}
+${sd ? `<h2>Saúde do servidor</h2>
+<div class="k"><div><b>${sd.memoria_livre_mb} MB</b>memória disponível de ${sd.memoria_total_mb}</div><div><b>${sd.swap_usado_mb ?? "–"} MB</b>swap em uso</div><div><b>${sd.carga.join(" · ")}</b>carga (1, 5, 15 min)</div><div><b>${sd.servidor_mb} MB</b>site, no ar desde ${esc(sd.no_ar_desde)} UTC</div></div>
+<p>Base derivada (tempos por seção): ${sd.base_derivada.atual ? `calculando <b>${esc(sd.base_derivada.atual)}</b> desde ${esc(String(sd.base_derivada.inicio).slice(11, 16))} UTC, ${(sd.base_derivada.lidas || 0).toLocaleString("pt-BR")} votos lidos` : "parada"}${sd.base_derivada.feitos.length ? `; prontas nesta execução: ${esc(sd.base_derivada.feitos.join(", "))}` : ""}.</p>
+<p>Processamento dos logs: ${sd.processos_logs.length ? sd.processos_logs.map(esc).join("<br>") : "nenhum processo rodando"}</p>
+${tabela(["Arquivo em download", "MB", "Alterado (UTC)"], sd.download_atual.map(a => [a.f, a.mb, a.em]))}
+${tabela(["Arquivos de logs mais recentes", "MB", "Alterado (UTC)"], sd.logs_recentes.map(a => [a.f, a.mb, a.em]))}` : ""}
 <h2>Pagamentos</h2>
 ${tabela(["Dia", "Situação", "Pedidos", "Sats"], r.pagamentos.map(p => [p.dia, p.status, p.q, p.sats || 0]))}
 <p><small>Versão no ar: ${esc(versao.slice(0, 7) || "?")}. Visitantes e usuários contados por hash diário do IP; nenhum IP é guardado. Atualize a página para ver números novos.</small></p></body></html>`;

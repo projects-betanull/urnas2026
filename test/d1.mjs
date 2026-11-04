@@ -89,6 +89,7 @@ export function abrirUrnas(pasta) {
 // Gera, para cada base completa que ainda não tem, o arquivo <turno>_<UF>_rel.db com a distribuição
 // dos votos por minuto desde a abertura da urna da seção. Lê o CSV por voto (<turno>_<UF>_votos.csv.gz)
 // gerado por etl/logs.py. Roda uma base por vez, em segundo plano no servidor.
+export const ESTADO = { atual: null, inicio: null, lidas: 0, feitos: [] };
 export async function derivarTempos(pasta, log = () => {}, onTroca = null) {
   let nomes = [];
   try { nomes = readdirSync(pasta).filter(f => /^[12]t_[A-Z]{2}_tempos\.db$/.test(f)); } catch { return; }
@@ -101,30 +102,36 @@ export async function derivarTempos(pasta, log = () => {}, onTroca = null) {
     }
     const src = new DatabaseSync(pasta + "/" + f, { readOnly: true });
     try { if (!src.prepare("SELECT 1 FROM voto_minuto_uf LIMIT 1").get()) continue; } catch { continue; } // ainda processando
-    const ab = new Map();
-    for (const r of src.prepare("SELECT cd_municipio, zona, secao, abertura FROM secao_tempo WHERE abertura IS NOT NULL").iterate()) {
-      const [h, m, s] = r.abertura.split(":").map(Number); ab.set(`${r.cd_municipio}|${r.zona}|${r.secao}`, h * 3600 + m * 60 + s);
+    // Seções numeradas (índice inteiro) para as contagens caberem em pouca memória: chave = índice*1440 + minuto.
+    const idx = new Map(), secs = [], ab = [];
+    for (const r of src.prepare("SELECT cd_municipio, zona, secao, abertura FROM secao_tempo").iterate()) {
+      const k = `${r.cd_municipio}|${r.zona}|${r.secao}`; idx.set(k, secs.length); secs.push([r.cd_municipio, r.zona, r.secao]);
+      if (r.abertura) { const [h, m, s2] = r.abertura.split(":").map(Number); ab.push(h * 3600 + m * 60 + s2); } else ab.push(null);
     }
     src.close();
-    // Também guarda, por seção, a "cauda" do dia: votos por minuto a partir das 16h (hora local da urna)
-    // e a partir de 8h de urna aberta, para aplicar limiares por seção com precisão de minuto.
-    const cont = new Map(), caudaH = new Map(), caudaR = new Map(); let n = 0, semAbertura = 0, antes = 0;
-    const CORTE_H = 14 * 60, CORTE_R = 8 * 60; // 14h locais cobrem as 16h de Brasília em qualquer fuso do país (AC = −2h); 8h de funcionamento
+    // Também guarda, por seção, a "cauda" do dia: votos por minuto a partir das 14h locais (cobre as 16h de Brasília
+    // em qualquer fuso do país) e a partir de 8h de urna aberta, para aplicar limiares por seção com precisão de minuto.
+    const cont = new Map(), caudaH = new Map(), caudaR = new Map(); let n = 0, semAbertura = 0, antes = 0, lidas = 0;
+    const CORTE_H = 14 * 60, CORTE_R = 8 * 60;
+    ESTADO.atual = f; ESTADO.inicio = new Date().toISOString(); ESTADO.lidas = 0;
     const linhas = createInterface({ input: createReadStream(gz).pipe(createGunzip()), crlfDelay: Infinity });
     let turno = null, uf = null, cab = true;
     for await (const l of linhas) {
       if (cab) { cab = false; continue; }
+      if ((++lidas & 0xFFFFF) === 0) ESTADO.lidas = lidas;
       const c = l.split(","); if (c.length < 6) continue;
       turno ??= Number(c[0]); uf ??= c[1];
-      const sk = `${c[2]}|${c[3]}|${c[4]}`, a = ab.get(sk);
-      const [h, m, s] = c[5].slice(11).split(":").map(Number), mm = h * 60 + m;
-      if (mm >= CORTE_H) { const kk = sk + "|" + mm; caudaH.set(kk, (caudaH.get(kk) || 0) + 1); }
-      if (a === undefined) { semAbertura++; continue; }
-      const d = h * 3600 + m * 60 + s - a;
+      const i = idx.get(`${c[2]}|${c[3]}|${c[4]}`);
+      const [h, m, s2] = c[5].slice(11).split(":").map(Number), mm = h * 60 + m;
+      if (i !== undefined && mm >= CORTE_H) { const kk = i * 1440 + mm; caudaH.set(kk, (caudaH.get(kk) || 0) + 1); }
+      const a = i === undefined ? null : ab[i];
+      if (a == null) { semAbertura++; continue; }
+      const d = h * 3600 + m * 60 + s2 - a;
       if (d < 0) { antes++; continue; }
       const k = Math.floor(d / 60); cont.set(k, (cont.get(k) || 0) + 1); n++;
-      if (k >= CORTE_R) { const kk = sk + "|" + k; caudaR.set(kk, (caudaR.get(kk) || 0) + 1); }
+      if (k >= CORTE_R && k < 1440) { const kk = i * 1440 + k; caudaR.set(kk, (caudaR.get(kk) || 0) + 1); }
     }
+    ESTADO.lidas = lidas;
     const tmp = rel + ".tmp"; rmSync(tmp, { force: true });
     const db = new DatabaseSync(tmp);
     db.exec(`CREATE TABLE voto_rel (turno INT, uf TEXT, minutos INT, votos INT, PRIMARY KEY (turno, uf, minutos));
@@ -133,12 +140,13 @@ export async function derivarTempos(pasta, log = () => {}, onTroca = null) {
       CREATE TABLE cauda_rel (cd_municipio TEXT, zona TEXT, secao TEXT, minutos INT, votos INT); -- minutos desde a abertura, a partir de 8h`);
     const ins = db.prepare("INSERT INTO voto_rel VALUES (?,?,?,?)"), iH = db.prepare("INSERT INTO cauda_hora VALUES (?,?,?,?,?)"), iR = db.prepare("INSERT INTO cauda_rel VALUES (?,?,?,?,?)");
     db.exec("BEGIN"); for (const [k, v] of cont) ins.run(turno, uf, k, v);
-    for (const [k, v] of caudaH) { const [a1, a2, a3, a4] = k.split("|"); iH.run(a1, a2, a3, Number(a4), v); }
-    for (const [k, v] of caudaR) { const [a1, a2, a3, a4] = k.split("|"); iR.run(a1, a2, a3, Number(a4), v); }
+    for (const [k, v] of caudaH) { const sc = secs[Math.floor(k / 1440)]; iH.run(sc[0], sc[1], sc[2], k % 1440, v); }
+    for (const [k, v] of caudaR) { const sc = secs[Math.floor(k / 1440)]; iR.run(sc[0], sc[1], sc[2], k % 1440, v); }
     db.exec("COMMIT"); db.exec("CREATE INDEX ix_ch ON cauda_hora (minuto); CREATE INDEX ix_cr ON cauda_rel (minutos);");
     db.prepare("INSERT INTO meta VALUES ('versao', '2')").run();
     db.prepare("INSERT INTO meta VALUES (?, ?)").run("contagem", JSON.stringify({ votos: n, sem_abertura: semAbertura, antes_da_abertura: antes }));
     db.close(); renameSync(tmp, rel); onTroca?.(f.replace("_tempos.db", "_rel.db"));
     log(`tempos desde a abertura: ${f.slice(0, 5)} ${n} votos`);
+    ESTADO.feitos.push(f.slice(0, 5)); ESTADO.atual = null;
   }
 }

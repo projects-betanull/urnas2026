@@ -234,7 +234,7 @@ export default {
       if (p === "/painel") {
         if (!(await chaveDoPainelOk(url.searchParams.get("k")))) return new Response("Não encontrado", { status: 404 });
         await conferirPendentes(env.DB, fetcher);
-        return new Response(htmlPainel(await resumo(env.DB), env.VERSAO || ""), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+        return new Response(htmlPainel(await resumo(env.DB), env.VERSAO || "", env.SAUDE ? env.SAUDE() : null), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
       }
       if (p === "/api/meta" && quem.site) await registrar(env.DB, "site", quem.ip);
       else if (p.startsWith("/api/") && !quem.site) await registrar(env.DB, "api", quem.ip);
