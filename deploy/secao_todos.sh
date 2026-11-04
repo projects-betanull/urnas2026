@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Baixa votacao_secao_2026_<UF>.zip de cada UF, carrega em /srv/eleicoes/secao/<UF>_secao.db e apaga o zip.
+# BR traz os votos de presidente de todas as UFs (os arquivos por UF trazem governador e senador).
 # Pula UFs já carregadas; retoma downloads; segue para a próxima UF se uma falhar. Execução avulsa (não é serviço).
 set -uo pipefail
 BASE=/srv/eleicoes; T=$BASE/secao_tmp; OUT=$BASE/secao; mkdir -p $T $OUT
 st(){ echo "$(date -u +%FT%TZ) $*" >> $BASE/status.txt; }
-for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO ZZ; do
+for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO ZZ BR; do
   [ -f $OUT/${uf}_secao.db ] && continue
   livre=$(df --output=avail -BG $BASE | tail -1 | tr -dc 0-9)
   if [ "${livre:-0}" -lt 15 ]; then st "secao pausada: só ${livre} GB livres"; exit 1; fi
