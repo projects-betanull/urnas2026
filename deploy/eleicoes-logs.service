@@ -1,0 +1,12 @@
+# Instalar (uma vez, com login): sudo cp /srv/eleicoes/app/deploy/eleicoes-logs.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now eleicoes-logs
+[Unit]
+Description=Baixa e processa os logs das urnas do TSE
+After=network-online.target
+[Service]
+Type=simple
+ExecStart=/bin/bash /srv/eleicoes/app/deploy/logs_todos.sh
+Restart=on-failure
+RestartSec=600
+Nice=10
+[Install]
+WantedBy=multi-user.target

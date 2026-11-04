@@ -1,13 +1,26 @@
 #!/usr/bin/env bash
 # Baixa e processa os logs de todas as UFs, uma de cada vez (apaga cada zip depois de processar).
-set -euo pipefail
+# Robusto a falhas: retoma downloads interrompidos (-C -), tenta de novo e, se uma UF falhar, segue para a próxima
+# (ela é tentada de novo na próxima execução). Feito para rodar como serviço systemd (eleicoes-logs).
+set -uo pipefail
 BASE=/srv/eleicoes; T=$BASE/logs_tmp; OUT=$BASE/logs; mkdir -p $T $OUT
+st(){ echo "$(date -u +%FT%TZ) $*" >> $BASE/status.txt; }
+falhas=0
 for turno in 1t 2t; do for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO ZZ; do
   [ -f $OUT/${turno}_${uf}_tempos.db ] && continue
-  curl -fSL -o $T/$uf.zip "https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes2026/arqurnatot/bu_imgbu_logjez_rdv_vscmr_2026_${turno}_${uf}.zip"
+  livre=$(df --output=avail -BG $BASE | tail -1 | tr -dc 0-9)
+  if [ "${livre:-0}" -lt 15 ]; then st "logs pausados: só ${livre} GB livres no disco"; exit 1; fi
+  st "logs ${turno} ${uf}: baixando"
+  if ! curl -fsSL --retry 8 --retry-delay 30 --retry-all-errors -C - -o $T/$uf.zip \
+       "https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes2026/arqurnatot/bu_imgbu_logjez_rdv_vscmr_2026_${turno}_${uf}.zip"; then
+    st "logs ${turno} ${uf}: falha no download (tenta de novo na próxima execução)"; falhas=$((falhas+1)); continue
+  fi
   mv $T/$uf.zip $T/arquivos_$uf.zip
-  python3 $BASE/app/etl/logs.py $T $OUT/${turno}_${uf}
+  if python3 $BASE/app/etl/logs.py $T $OUT/${turno}_${uf} >> $BASE/logs_processamento.txt 2>&1; then
+    st "logs ${turno} ${uf} processados"
+  else
+    st "logs ${turno} ${uf}: falha no processamento"; rm -f $OUT/${turno}_${uf}_tempos.db; falhas=$((falhas+1))
+  fi
   rm -f $T/*.zip
-  echo "$(date -u +%FT%TZ) logs ${turno} ${uf} processados" >> $BASE/status.txt
 done; done
-echo "Logs processados em $OUT"
+[ $falhas -eq 0 ] && st "logs: todas as UFs processadas" || exit 1
