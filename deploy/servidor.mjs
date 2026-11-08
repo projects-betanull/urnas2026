@@ -5,6 +5,7 @@ const LOGS = process.env.LOGS_DIR || "/srv/eleicoes/logs";
 const VERSAO = (() => { try { return readFileSync("/srv/eleicoes/versao", "utf8").trim(); } catch { return ""; } })();
 import worker from "../worker/src/index.js";
 import { abrirD1, abrirUrnas, derivarTempos, ESTADO } from "../test/d1.mjs";
+import { resumoUrnas, curvaUrnas, distribuicaoUrnas } from "../worker/src/urnas.js";
 import os from "node:os";
 import { readdirSync, statSync, readFileSync as lerArq } from "node:fs";
 import { appendFileSync } from "node:fs";
@@ -37,6 +38,17 @@ let derivando = false;
 const derivar = async () => {
   if (derivando) return; derivando = true;
   try { await derivarTempos(LOGS, m => { try { appendFileSync("/srv/eleicoes/status.txt", `${new Date().toISOString().slice(0, 19)}Z ${m}\n`); } catch {} }, nome => env.URNAS.soltar(nome)); }
-  catch (e) { console.error("derivarTempos", e); } finally { derivando = false; }
+  catch (e) { console.error("derivarTempos", e); } finally { derivando = false; aquecer(); }
 };
+// Deixa prontas (em memória) as consultas da página /urnas, para o primeiro visitante não esperar.
+// Os resultados ficam guardados por base, então as páginas de cada UF também aproveitam.
+const aquecer = async () => {
+  const t = [() => resumoUrnas(env, {})];
+  for (const turno of [2, 1]) {
+    t.push(() => curvaUrnas(env, { turno, intervalo: 10 }));
+    for (const visao of ["horario_voto", "encerramento", "tempo_voto", "duracao"]) t.push(() => distribuicaoUrnas(env, { turno, visao }));
+  }
+  for (const f of t) { try { f(); } catch {} await new Promise(r => setTimeout(r, 50)); }
+};
+setTimeout(aquecer, 3000);
 setTimeout(derivar, 60_000); setInterval(derivar, 3600_000);

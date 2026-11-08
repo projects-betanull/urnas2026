@@ -1,8 +1,9 @@
 // Cruza horários das urnas com votos por seção (etl/secao.py) no explorador de horários.
 // Prepara: python3 test/gerar_logs.py /tmp/tu && python3 etl/logs.py /tmp/tu /tmp/tu/logs/2t_SP && (zip BR) && python3 etl/secao.py
 import assert from "node:assert/strict";
-import { abrirD1, abrirUrnas } from "./d1.mjs";
+import { abrirD1, abrirUrnas, derivarTempos } from "./d1.mjs";
 import { explorarUrnas, valoresUrnas } from "../worker/src/explorar_urnas.js";
+import { resumoUrnas, curvaUrnas, distribuicaoUrnas, municipiosUrnas } from "../worker/src/urnas.js";
 const P = process.argv[2] || "/tmp/tu";
 const env = { DB: abrirD1("test/exemplo.db"), URNAS: abrirUrnas(P + "/logs", P + "/secaodb") };
 const r = await explorarUrnas(env, { medida: "votos_candidato", linhas: "candidato", filtros: { turno: ["2"] } });
@@ -24,4 +25,19 @@ const g = await explorarUrnas(env, { medida: "votos_candidato", linhas: "uf", ca
 assert.deepEqual(g.sem_votos_por_secao, ["2º SP"]);
 const d = await explorarUrnas(env, { medida: "desvio_mun_candidato", linhas: "encerrou_apos", colunas: "candidato", filtros: { turno: ["2"] }, limiar_hora: "17:30" });
 for (const l of d.linhas) assert.ok(Math.abs(l.valor) < 3, `dentro do município a diferença some: ${l.linha} ${l.coluna} ${l.valor}`);
+
+// O log do 2º turno traz também os eventos da mesma urna no 1º turno (04/10). A base 2t_SP não pode
+// responder pelo 1º turno nem misturar os dois dias.
+const res = resumoUrnas(env, {});
+assert.deepEqual(res.linhas.map(l => `${l.turno} ${l.uf}`), ["2 SP"], "base do 2º turno só responde pelo 2º turno");
+const cv = curvaUrnas(env, { turno: 2, intervalo: 10 });
+assert.ok(cv.pontos.length && cv.pontos.every(x => x.turno === 2), "curva do 2º turno só tem o 2º turno");
+assert.equal(cv.pontos.reduce((a, x) => a + x.votos, 0), res.linhas[0].votos, "curva soma os votos do turno");
+assert.equal(curvaUrnas(env, { turno: 1 }).pontos.length, 0);
+for (const visao of ["horario_voto", "encerramento", "duracao"]) assert.equal(distribuicaoUrnas(env, { turno: 2, visao }).total_votos, res.linhas[0].votos, visao);
+assert.ok((await municipiosUrnas(env, { turno: 2, uf: "SP" })).linhas.every(l => l.turno === 2));
+const tot2 = (await explorarUrnas(env, { medida: "votos", linhas: "uf" })).linhas.reduce((a, l) => a + l.valor, 0);
+assert.equal(tot2, res.linhas[0].votos, "explorador sem filtro de turno não duplica o 1º turno");
+await derivarTempos(P + "/logs", () => {}, nome => env.URNAS.soltar(nome));
+assert.equal(distribuicaoUrnas(env, { turno: 2, visao: "tempo_voto" }).total_votos, res.linhas[0].votos, "tempo desde a abertura só com o 2º turno");
 console.log("teste_urnas_cand ok", p.linhas.map(l => `${l.linha} ${l.coluna} ${l.valor.toFixed(1)}`).join(" | "));
