@@ -1,6 +1,7 @@
 // Cruza horários das urnas com votos por seção (etl/secao.py) no explorador de horários.
 // Prepara: python3 test/gerar_logs.py /tmp/tu && python3 etl/logs.py /tmp/tu /tmp/tu/logs/2t_SP && (zip BR) && python3 etl/secao.py
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import { abrirD1, abrirUrnas, derivarTempos } from "./d1.mjs";
 import { explorarUrnas, valoresUrnas } from "../worker/src/explorar_urnas.js";
 import { resumoUrnas, curvaUrnas, distribuicaoUrnas, municipiosUrnas } from "../worker/src/urnas.js";
@@ -40,4 +41,7 @@ const tot2 = (await explorarUrnas(env, { medida: "votos", linhas: "uf" })).linha
 assert.equal(tot2, res.linhas[0].votos, "explorador sem filtro de turno não duplica o 1º turno");
 await derivarTempos(P + "/logs", () => {}, nome => env.URNAS.soltar(nome));
 assert.equal(distribuicaoUrnas(env, { turno: 2, visao: "tempo_voto" }).total_votos, res.linhas[0].votos, "tempo desde a abertura só com o 2º turno");
+// Encerramento = confirmação do mesário, não a tentativa cancelada nem o "Inicio do Encerramento" (depois do registro dos mesários).
+const encs = new DatabaseSync(P + "/logs/2t_SP_tempos.db", { readOnly: true }).prepare("SELECT DISTINCT encerramento FROM secao_tempo WHERE turno = 1").all().map(r => r.encerramento);
+assert.deepEqual(encs, ["18:30:00"]);
 console.log("teste_urnas_cand ok", p.linhas.map(l => `${l.linha} ${l.coluna} ${l.valor.toFixed(1)}`).join(" | "));

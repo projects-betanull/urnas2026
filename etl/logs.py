@@ -19,6 +19,9 @@ EVENTOS = [  # (tipo, regex sobre a mensagem). Ajustáveis com --calibrar.
     ("voto", re.compile(r"voto do eleitor foi computado", re.I)),
     ("habilitado", re.compile(r"eleitor foi habilitado", re.I)),
     ("abertura", re.compile(r"urna pronta para receber votos", re.I)),
+    # O mesário pode escolher "Encerrar votação" e cancelar várias vezes; a urna só fecha com a confirmação.
+    # Depois dela vem o registro dos mesários (alguns minutos) e só então "Inicio do Encerramento".
+    ("confirmado", re.compile(r"procedimento de encerramento confirmado", re.I)),
     ("encerramento", re.compile(r"(in[ií]cio|procedimento).{0,20}encerramento|encerramento da vota", re.I)),
 ]
 RE_NOME = re.compile(r"(\d{5})(\d{4})(\d{4})")
@@ -154,7 +157,8 @@ def processar(pasta, prefixo, calibrar=0):
         for turno, lista in por_turno.items():
             votos = sorted(dt for t, dt in lista if t == "voto")
             ab = min((dt for t, dt in lista if t == "abertura"), default=None)
-            enc = max((dt for t, dt in lista if t == "encerramento"), default=None)
+            # Encerramento = confirmação do mesário (a última, se houve mais de uma); logs sem ela: o último evento de encerramento.
+            enc = max((dt for t, dt in lista if t == "confirmado"), default=None) or max((dt for t, dt in lista if t == "encerramento"), default=None)
             for dt in votos:
                 w.writerow([turno, uf, mun, zona, secao, dt.strftime("%Y-%m-%d %H:%M:%S")])
                 minuto[(turno, uf, dt.strftime("%H:%M"))] += 1

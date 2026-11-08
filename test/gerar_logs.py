@@ -20,7 +20,9 @@ for mun, (pa, nsec, enc_med) in MUN.items():
         d1 = D.datetime(2026, 10, 4)
         L = [f"{d1:%d/%m/%Y} 07:59:40\tINFO\t11111111\tVOTA\tUrna pronta para receber votos\tX"]
         L += [f"{d1 + D.timedelta(minutes=8*60 + 20*k):%d/%m/%Y %H:%M:%S}\tINFO\t11111111\tVOTA\tO voto do eleitor foi computado\tX" for k in range(30)]
-        L += [f"{d1:%d/%m/%Y} 18:30:00\tINFO\t11111111\tVOTA\tIniciando procedimento de encerramento\tX"]
+        L += [f"{d1:%d/%m/%Y} 17:10:00\tINFO\t11111111\tVOTA\tOperador cancelou o encerramento da votação\tX",  # tentou e cancelou
+              f"{d1:%d/%m/%Y} 18:30:00\tINFO\t11111111\tVOTA\tProcedimento de encerramento confirmado\tX",
+              f"{d1:%d/%m/%Y} 18:34:00\tINFO\t11111111\tVOTA\tInicio do Encerramento\tX"]  # depois do registro dos mesários
         L += [f"20/10/2026 10:00:00\tINFO\t11111111\tVOTA\tO voto do eleitor foi computado\tX",  # teste antes da eleição: ignorar
              f"25/10/2026 07:59:50\tINFO\t11111111\tVOTA\tUrna pronta para receber votos\tX"]
         ts = sorted(dia + D.timedelta(seconds=random.randint(8*3600, int((enc - dia).total_seconds()) - 5)) for _ in range(nvot))

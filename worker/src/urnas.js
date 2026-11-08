@@ -13,7 +13,7 @@ const hhmmss = m => m == null ? null : `${String(Math.floor(m / 60)).padStart(2,
 // hora local "HH:MM:SS" -> Brasília (exterior fica como está)
 const br = (t, uf) => { if (!t) return null; const s = t.split(":").map(Number), m = s[0] * 60 + s[1] + (s[2] || 0) / 60 - 60 * fz(uf); return hhmmss(m); };
 const local = (hBr, uf) => `${String(hBr + fz(uf)).padStart(2, "0")}:00:00`; // 17h de Brasília no horário local da UF
-const NOTA = "Fonte: logs oficiais das urnas (TSE). Horários convertidos para o de Brasília (no exterior, horário local do país). No Amazonas, alguns municípios do oeste têm uma hora a menos que o resto do estado; aqui todo o AM usa o mesmo fuso. O log não registra o candidato votado.";
+const NOTA = "Fonte: logs oficiais das urnas (TSE). Horários convertidos para o de Brasília (no exterior, horário local do país). No Amazonas, alguns municípios do oeste têm uma hora a menos que o resto do estado; aqui todo o AM usa o mesmo fuso. O log não registra o candidato votado. No 2º turno, já depois das 17h, o STF prorrogou a votação até as 19h nas seções que ainda estavam abertas: milhares encerraram perto das 19h quase sem votos novos, então ali encerramento tardio não indica fila (use o horário dos votos).";
 
 function exigir(env) {
   if (!env.URNAS) throw new ErroApi(503, "Horários das urnas ainda não disponíveis neste servidor.");
