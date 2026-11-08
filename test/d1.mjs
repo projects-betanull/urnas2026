@@ -96,7 +96,10 @@ export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "")
     },
     disponiveis: () => bases().map(b => ({ turno: b.turno, uf: b.uf, tempo_desde_abertura: !!b.rel, votos_por_secao_apos_limiar: b.relVersao >= 2 })),
     // Fecha a base derivada aberta (para trocar o arquivo por uma versão nova).
-    soltar(nome) { const x = abertas.get(nome); if (x) { try { x.close(); } catch {} abertas.delete(nome); } cache.clear(); linhasCache = 0; },
+    soltar(nome) { const x = abertas.get(nome); if (x) { try { x.close(); } catch {} abertas.delete(nome); }
+      // Só os resultados dessa base derivada saem da memória; os das bases de horários continuam valendo.
+      const pre = `rel|${nome.replace("_rel.db", "_tempos.db")}|`;
+      for (const [k, x] of cache) if (k.startsWith(pre)) { cache.delete(k); linhasCache -= x.length + 1; } },
     // Percorre linha a linha (sem montar listas grandes em memória). cb(linha, base).
     // relSql (opcional) roda antes na base derivada da mesma UF e o resultado vai como base.extra.
     percorrer(sql, params = [], filtro = {}, cb, relSql = null, relParams = []) {
