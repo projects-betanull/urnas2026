@@ -70,85 +70,97 @@ export async function explorarUrnas(env, p) {
   const cel = new Map(), semCauda = new Set(), semSecao = new Set();
   // Com a dimensão Candidato, cada seção entra uma vez por candidato: os totais de % usam os válidos da seção uma vez só.
   const denL = new Map(), denG = [0]; const candDim = linhaDim === "candidato" || colDim === "candidato";
-  const dimDe = (d, s, ctx) => {
-    switch (d) {
-      case "turno": return String(ctx.turno);
-      case "uf": return ctx.uf;
-      case "municipio": return nm.get(String(Number(s.cd_municipio))) || s.cd_municipio;
-      case "zona": return `Zona ${s.zona}`;
-      case "secao": return `${s.zona}/${s.secao}`;
-      case "faixa_encerramento": { if (s.encBr == null) return "(sem encerramento)"; const a = Math.floor(s.encBr / passo) * passo; return `${hm(a)}–${hm(a + passo - 1)}`; }
-      case "faixa_abertura": { if (s.abBr == null) return "(sem abertura)"; const a = Math.floor(s.abBr / passo) * passo; return `${hm(a)}–${hm(a + passo - 1)}`; }
-      case "faixa_duracao": { if (s.dur == null) return "(sem dado)"; const a = Math.floor(s.dur / passo) * passo; return `${dur(a)}–${dur(a + passo - 1)}`; }
-      case "encerrou_apos": return s.encBr == null ? "(sem encerramento)" : s.encBr >= limH ? `Encerrou a partir de ${hm(limH)}` : `Encerrou antes de ${hm(limH)}`;
-      case "candidato": return s.cand;
-      case "funcionou_apos": return s.dur == null ? "(sem dado)" : s.dur >= limT ? `Funcionou ${dur(limT)} ou mais` : `Funcionou menos de ${dur(limT)}`;
-    }
-  };
-  const add = (l, c, num, den) => { const k = l + "\u0000" + c; const x = cel.get(k) || [0, 0]; x[0] += num; x[1] += den; cel.set(k, x); };
+  const add = (l, c, num, den) => { let m = cel.get(l); if (!m) cel.set(l, m = new Map()); const x = m.get(c); if (x) { x[0] += num; x[1] += den; } else m.set(c, [num, den]); };
+  // Rótulos das faixas: um por faixa, reaproveitados por todas as seções.
+  const memo = f => { const m = new Map(); return v => { let r = m.get(v); if (r === undefined) m.set(v, r = f(v)); return r; }; };
+  const faixaHora = memo(a => `${hm(a)}–${hm(a + passo - 1)}`), faixaDur = memo(a => `${dur(a)}–${dur(a + passo - 1)}`);
+  const ROT = { encA: `Encerrou a partir de ${hm(limH)}`, encB: `Encerrou antes de ${hm(limH)}`, funA: `Funcionou ${dur(limT)} ou mais`, funB: `Funcionou menos de ${dur(limT)}` };
+  const s = { encBr: null, abBr: null, dur: null, cand: null }, vistas = new Set();
   for (const t of turnos) {
-    env.URNAS.percorrer("SELECT cd_municipio, zona, secao, abertura, encerramento, votos FROM secao_tempo", [], { turno: t, ufs: ufsFiltro }, (s, ctx) => {
-      if (!ctx.mapa) {
-        ctx.mapa = new Map();
-        if (cauda && !ctx.temCauda) semCauda.add(`${ctx.turno}º ${ctx.uf}`);
-        if (cauda && ctx.extra) for (const e of ctx.extra) ctx.mapa.set(`${e.cd_municipio}|${e.zona}|${e.secao}`, e.v);
-        if (porCand) { ctx.vs = env.URNAS.votosSecao ? env.URNAS.votosSecao(ctx.turno, ctx.uf, cargo) : null; if (!ctx.vs || !ctx.vs.mapa.size) semSecao.add(`${ctx.turno}º ${ctx.uf}`);
-          else if (medida === "desvio_mun_candidato") {
-            ctx.share = new Map(); const tm = new Map();
-            for (const [k, vv] of ctx.vs.mapa) { const m = k.slice(0, k.indexOf("|")); let sm = ctx.share.get(m); if (!sm) ctx.share.set(m, sm = new Map());
-              for (const [nr, q] of vv) { sm.set(nr, (sm.get(nr) || 0) + q); tm.set(m, (tm.get(m) || 0) + q); } }
-            for (const [m, sm] of ctx.share) { const t = tm.get(m) || 1; for (const [nr, q] of sm) sm.set(nr, q / t); }
-          } }
-      }
-      const ab = minDe(s.abertura), enc = minDe(s.encerramento), f = 60 * fz(ctx.uf);
-      s.abBr = ab == null ? null : Math.floor(ab - f); s.encBr = enc == null ? null : Math.floor(enc - f);
-      s.dur = ab != null && enc != null && enc > ab ? Math.floor(enc - ab) : null;
-      const sk = `${s.cd_municipio}|${s.zona}|${s.secao}`;
+    for (const base of env.URNAS.secoes(t, ufsFiltro)) {
+      await new Promise(r => setImmediate(r)); // deixa outras requisições andarem entre uma base e outra
+      const ix = base.indice(), uf = base.uf, f = 60 * fz(uf), turnoTxt = String(base.turno);
+      const munRot = ix.muns.map(m => nm.get(String(Number(m))) || m), zonaRot = ix.zonas.map(z => `Zona ${z}`);
+      const dimDe = (d, i) => {
+        switch (d) {
+          case "turno": return turnoTxt;
+          case "uf": return uf;
+          case "municipio": return munRot[ix.mun[i]];
+          case "zona": return zonaRot[ix.zona[i]];
+          case "secao": return `${ix.zonas[ix.zona[i]]}/${ix.secoes[ix.secao[i]]}`;
+          case "faixa_encerramento": return s.encBr == null ? "(sem encerramento)" : faixaHora(Math.floor(s.encBr / passo) * passo);
+          case "faixa_abertura": return s.abBr == null ? "(sem abertura)" : faixaHora(Math.floor(s.abBr / passo) * passo);
+          case "faixa_duracao": return s.dur == null ? "(sem dado)" : faixaDur(Math.floor(s.dur / passo) * passo);
+          case "encerrou_apos": return s.encBr == null ? "(sem encerramento)" : s.encBr >= limH ? ROT.encA : ROT.encB;
+          case "funcionou_apos": return s.dur == null ? "(sem dado)" : s.dur >= limT ? ROT.funA : ROT.funB;
+          case "candidato": return s.cand;
+        }
+      };
+      const filt = Object.entries(filtros).filter(([k]) => k !== "turno" && k !== "candidato");
+      // Filtros que não dependem da seção (turno, UF) resolvem a base inteira de uma vez.
+      if (filt.some(([k, set]) => (k === "uf" && !set.has(uf)))) continue;
+      const passa = i => { for (const [k, set] of filt) if (!set.has(dimDe(k, i))) return false; return true; };
+      let cv = null;
+      if (cauda) { if (!base.temCauda) semCauda.add(`${base.turno}º ${uf}`); else cv = base.cauda(cauda, cauda === "hora" ? limH + 60 * fz(uf) : limT); }
+      let vs = null, share = null;
       if (porCand) {
-        const vv = ctx.vs?.mapa.get(sk); if (!vv) return;
-        s.cand = null;
-        for (const [k, set] of Object.entries(filtros)) if (k !== "turno" && k !== "candidato" && !set.has(dimDe(k, s, ctx))) return;
-        let validos = 0; for (const [, q] of vv) validos += q;
-        const fc = filtros.candidato;
-        if (linhaDim !== "candidato" && colDim !== "candidato") {
-          const sm = ctx.share?.get(s.cd_municipio);
-          let n = 0; for (const [nr, q] of vv) if (!fc || fc.has(ctx.vs.nomes.get(nr) || nr)) n += sm ? q - validos * (sm.get(nr) || 0) : q;
-          return add(dimDe(linhaDim, s, ctx), colDim ? dimDe(colDim, s, ctx) : null, n, validos);
+        vs = base.candidatos(cargo);
+        if (!vs || vs.vazio) { semSecao.add(`${base.turno}º ${uf}`); continue; }
+        if (medida === "desvio_mun_candidato") { // participação de cada candidato no próprio município
+          const k = vs.k, sm = new Float64Array(ix.muns.length * k), tm = new Float64Array(ix.muns.length);
+          for (let i = 0; i < ix.n; i++) if (vs.tem[i]) { const m = ix.mun[i]; for (let j = 0; j < k; j++) { const q = vs.q[i * k + j]; if (q > 0) { sm[m * k + j] += q; tm[m] += q; } } }
+          for (let m = 0; m < ix.muns.length; m++) for (let j = 0; j < k; j++) sm[m * k + j] = tm[m] ? sm[m * k + j] / tm[m] : 0;
+          share = sm;
         }
-        const vistas = new Set(); let algum = false;
-        for (const [nr, q] of vv) {
-          s.cand = ctx.vs.nomes.get(nr) || nr; if (fc && !fc.has(s.cand)) continue;
-          const lr = dimDe(linhaDim, s, ctx); if (!vistas.has(lr)) { vistas.add(lr); denL.set(lr, (denL.get(lr) || 0) + validos); } algum = true;
-          const sm = ctx.share?.get(s.cd_municipio);
-          add(lr, colDim ? dimDe(colDim, s, ctx) : null, sm ? q - validos * (sm.get(nr) || 0) : q, validos);
+      }
+      const fc = filtros.candidato, nomeCand = vs ? vs.nrs.map(nr => vs.nomes.get(nr) || nr) : null, candOk = nomeCand ? nomeCand.map(nm => !fc || fc.has(nm)) : null;
+      for (let i = 0; i < ix.n; i++) {
+        const ab = ix.ab[i] < 0 ? null : ix.ab[i] / 60, enc = ix.enc[i] < 0 ? null : ix.enc[i] / 60;
+        s.abBr = ab == null ? null : Math.floor(ab - f); s.encBr = enc == null ? null : Math.floor(enc - f);
+        s.dur = ab != null && enc != null && enc > ab ? Math.floor(enc - ab) : null; s.cand = null;
+        if (porCand) {
+          if (!vs.tem[i] || !passa(i)) continue;
+          const k = vs.k, o = i * k, sh = share ? ix.mun[i] * k : -1;
+          let validos = 0; for (let j = 0; j < k; j++) { const q = vs.q[o + j]; if (q > 0) validos += q; }
+          if (!candDim) {
+            let n = 0; for (let j = 0; j < k; j++) { const q = vs.q[o + j]; if (q < 0 || !candOk[j]) continue; n += share ? q - validos * share[sh + j] : q; }
+            add(dimDe(linhaDim, i), colDim ? dimDe(colDim, i) : null, n, validos);
+            continue;
+          }
+          let algum = false; vistas.clear();
+          for (let j = 0; j < k; j++) {
+            const q = vs.q[o + j]; if (q < 0 || !candOk[j]) continue; // q = -1: candidato sem linha nesta seção
+            s.cand = nomeCand[j];
+            const lr = dimDe(linhaDim, i);
+            if (!vistas.has(lr)) { vistas.add(lr); denL.set(lr, (denL.get(lr) || 0) + validos); }
+            algum = true;
+            add(lr, colDim ? dimDe(colDim, i) : null, share ? q - validos * share[sh + j] : q, validos);
+          }
+          if (algum) denG[0] += validos;
+          continue;
         }
-        if (algum) denG[0] += validos;
-        return;
+        if (filt.length && !passa(i)) continue;
+        const l = dimDe(linhaDim, i), c = colDim ? dimDe(colDim, i) : null;
+        const v = ix.votos[i], encApos = s.encBr != null && s.encBr >= limH, longa = s.dur != null && s.dur >= limT;
+        switch (medida) {
+          case "secoes": add(l, c, 1, 0); break;
+          case "votos": add(l, c, v, 0); break;
+          case "votos_apos_hora": case "votos_apos_tempo": add(l, c, cv ? cv[i] : 0, 0); break;
+          case "pct_votos_apos_hora": add(l, c, cv ? cv[i] : 0, base.temCauda ? v : 0); break;
+          case "secoes_encerradas_apos": add(l, c, encApos ? 1 : 0, 0); break;
+          case "votos_urnas_encerradas_apos": add(l, c, encApos ? v : 0, 0); break;
+          case "secoes_longas": add(l, c, longa ? 1 : 0, 0); break;
+          case "votos_urnas_longas": add(l, c, longa ? v : 0, 0); break;
+          case "encerramento_medio": if (s.encBr != null) add(l, c, s.encBr, 1); break;
+          case "duracao_media": if (s.dur != null) add(l, c, s.dur, 1); break;
+        }
       }
-      for (const [k, set] of Object.entries(filtros)) if (k !== "turno" && !set.has(dimDe(k, s, ctx))) return;
-      const l = dimDe(linhaDim, s, ctx), c = colDim ? dimDe(colDim, s, ctx) : null;
-      const encApos = s.encBr != null && s.encBr >= limH, longa = s.dur != null && s.dur >= limT;
-      const cv = ctx.mapa.get(sk) || 0;
-      switch (medida) {
-        case "secoes": return add(l, c, 1, 0);
-        case "votos": return add(l, c, s.votos || 0, 0);
-        case "votos_apos_hora": case "votos_apos_tempo": return add(l, c, cv, 0);
-        case "pct_votos_apos_hora": return add(l, c, cv, ctx.temCauda ? s.votos || 0 : 0);
-        case "secoes_encerradas_apos": return add(l, c, encApos ? 1 : 0, 0);
-        case "votos_urnas_encerradas_apos": return add(l, c, encApos ? s.votos || 0 : 0, 0);
-        case "secoes_longas": return add(l, c, longa ? 1 : 0, 0);
-        case "votos_urnas_longas": return add(l, c, longa ? s.votos || 0 : 0, 0);
-        case "encerramento_medio": return s.encBr == null ? null : add(l, c, s.encBr, 1);
-        case "duracao_media": return s.dur == null ? null : add(l, c, s.dur, 1);
-      }
-    }, cauda === "hora" ? "SELECT cd_municipio, zona, secao, SUM(votos) v FROM cauda_hora WHERE minuto >= ? GROUP BY 1, 2, 3"
-      : cauda === "rel" ? "SELECT cd_municipio, zona, secao, SUM(votos) v FROM cauda_rel WHERE minutos >= ? GROUP BY 1, 2, 3" : null,
-      b => cauda === "hora" ? [limH + 60 * fz(b.uf)] : [limT]);
+    }
   }
   const tipo = MED_URNAS[medida].tipo, val = ([a, b]) => tipo === "soma" ? a : b ? (tipo === "razao" ? 100 * a / b : a / b) : null;
   const linhas = [], totL = new Map(), tot = [0, 0];
-  for (const [k, x] of cel) {
-    const [l, c] = k.split("\u0000"); linhas.push({ linha: l, coluna: c === "null" ? null : c, valor: val(x) });
+  for (const [l, m] of cel) for (const [c, x] of m) {
+    linhas.push({ linha: l, coluna: c, valor: val(x) });
     const t = totL.get(l) || [0, 0]; t[0] += x[0]; t[1] += x[1]; totL.set(l, t); tot[0] += x[0]; tot[1] += x[1];
   }
   const r = { linhas, medida, linhaDim, colDim, filtros: Object.fromEntries(Object.entries(filtros).map(([k, v]) => [k, [...v]])),

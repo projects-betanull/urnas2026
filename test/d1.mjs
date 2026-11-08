@@ -51,10 +51,80 @@ export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "")
     try { const b = new DatabaseSync(pasta + "/" + arq, { readOnly: true }); abertas.set(arq, b); mtimes.set(arq, m); return b; } catch { return null; }
   };
   // Bases de votos por seção (etl/secao.py): <UF>_secao.db (governador, senador) e BR_secao.db (presidente).
+  // Reabre quando etl/secao.py troca o arquivo (carga de uma UF nova ou refeita).
+  const mtSecao = new Map();
   const abrirSecao = uf => {
-    const f = `${uf}_secao.db`; let b = abertas.get(f);
-    if (b === undefined) { b = null; if (existsSync(pastaSecao + "/" + f)) { try { b = new DatabaseSync(pastaSecao + "/" + f, { readOnly: true }); } catch {} } if (b) abertas.set(f, b); }
+    const f = `${uf}_secao.db`; let m; try { m = statSync(pastaSecao + "/" + f).mtimeMs; } catch { return null; }
+    let b = abertas.get(f);
+    if (b && mtSecao.get(f) !== m) { try { b.close(); } catch {} abertas.delete(f); b = undefined; }
+    if (b === undefined) { b = null; try { b = new DatabaseSync(pastaSecao + "/" + f, { readOnly: true }); } catch {} if (b) { abertas.set(f, b); mtSecao.set(f, m); } }
     return b;
+  };
+
+  // ---- Índice compacto para o explorador de horários --------------------------------------------------
+  // Antes, cada consulta do explorador relia secao_tempo de todas as bases (≈ 500 mil seções por turno) e,
+  // para votos tardios, refazia um GROUP BY na base derivada: 6–8 s por consulta nacional na VM pequena.
+  // Agora cada base é lida uma vez para vetores tipados (≈ 20 bytes por seção) e as somas por limiar e os
+  // votos por candidato ficam guardados, alinhados à ordem das seções (cd_municipio, zona, secao).
+  const IDX = new Map(); // nome da base -> { mt, ix }
+  const LRU = new Map(); let bytesLRU = 0; const BYTES_LRU = 64 * 1024 * 1024;
+  const guardar = (k, calc) => {
+    const h = LRU.get(k); if (h) { LRU.delete(k); LRU.set(k, h); return h.v; }
+    const v = calc(); const bytes = v?.bytes || 64; LRU.set(k, { v, bytes }); bytesLRU += bytes;
+    for (const [kk, x] of LRU) { if (bytesLRU <= BYTES_LRU || kk === k) break; LRU.delete(kk); bytesLRU -= x.bytes; }
+    return v;
+  };
+  const tabela = () => { const ids = new Map(), vals = []; return { vals, id: s => { let i = ids.get(s); if (i === undefined) { ids.set(s, i = vals.length); vals.push(s); } return i; } }; };
+  const seg = t => { if (!t) return -1; const [h, m, s] = t.split(":").map(Number); return h * 3600 + m * 60 + (s || 0); };
+  const indice = b => {
+    const mt = mtimes.get(b.nome), x = IDX.get(b.nome); if (x && x.mt === mt) return x.ix;
+    const n = b.db.prepare("SELECT COUNT(*) n FROM secao_tempo").get().n;
+    const mun = new Uint16Array(n), zona = new Uint16Array(n), secao = new Uint16Array(n), ab = new Int32Array(n), enc = new Int32Array(n), votos = new Int32Array(n);
+    const tm = tabela(), tz = tabela(), ts = tabela(); let i = 0;
+    for (const r of b.db.prepare("SELECT cd_municipio, zona, secao, abertura, encerramento, votos FROM secao_tempo ORDER BY cd_municipio, zona, secao").iterate()) {
+      if (i >= n) break;
+      mun[i] = tm.id(r.cd_municipio); zona[i] = tz.id(r.zona); secao[i] = ts.id(r.secao); ab[i] = seg(r.abertura); enc[i] = seg(r.encerramento); votos[i] = r.votos || 0; i++;
+    }
+    const ix = { n: i, mun, zona, secao, ab, enc, votos, muns: tm.vals, zonas: tz.vals, secoes: ts.vals };
+    IDX.set(b.nome, { mt, ix }); return ix;
+  };
+  // Junta linhas ordenadas por (cd_municipio, zona, secao) com as seções do índice, sem montar mapas por chave.
+  const casar = (ix, linhas, cb) => {
+    let i = 0;
+    const cmp = (r, j) => { const a = ix.muns[ix.mun[j]], z = ix.zonas[ix.zona[j]], s = ix.secoes[ix.secao[j]];
+      return r.cd_municipio < a ? -1 : r.cd_municipio > a ? 1 : r.zona < z ? -1 : r.zona > z ? 1 : r.secao < s ? -1 : r.secao > s ? 1 : 0; };
+    for (const r of linhas) {
+      let c; while (i < ix.n && (c = cmp(r, i)) > 0) i++;
+      if (i >= ix.n) break;
+      if (c === 0) cb(i, r);
+    }
+  };
+  // Votos registrados a partir de um limiar, por seção (Int32Array alinhado ao índice), ou null sem base derivada.
+  const cauda = (b, ix, tipo, lim) => {
+    if (!b.rel || b.relVersao < 2) return null;
+    const fr = b.nome.replace("_tempos.db", "_rel.db");
+    return guardar(`cauda|${fr}|${mtimes.get(fr)}|${mtimes.get(b.nome)}|${tipo}|${lim}`, () => {
+      const v = new Int32Array(ix.n);
+      const sql = tipo === "hora" ? "SELECT cd_municipio, zona, secao, SUM(votos) v FROM cauda_hora WHERE minuto >= ? GROUP BY 1, 2, 3 ORDER BY 1, 2, 3"
+        : "SELECT cd_municipio, zona, secao, SUM(votos) v FROM cauda_rel WHERE minutos >= ? GROUP BY 1, 2, 3 ORDER BY 1, 2, 3";
+      casar(ix, b.rel.prepare(sql).iterate(lim), (i, r) => { v[i] = r.v; });
+      v.bytes = v.byteLength; return v;
+    });
+  };
+  // Votos válidos por seção e candidato num cargo: q[i * k + j], tem[i] = seção presente na base de votos.
+  const candidatos = (b, ix, cargo) => {
+    const uf = cargo === "PRESIDENTE" ? "BR" : b.uf, sb = abrirSecao(uf); if (!sb) return null;
+    return guardar(`cand|${b.nome}|${mtimes.get(b.nome)}|${cargo}|${mtSecao.get(uf + "_secao.db")}`, () => {
+      let where = "turno = ? AND cargo = ? AND nr_votavel NOT IN ('95','96','97','98')", par = [b.turno, cargo];
+      if (cargo === "PRESIDENTE") { if (!ix.muns.length) return { k: 0, nrs: [], nomes: new Map(), q: new Int32Array(0), tem: new Uint8Array(ix.n), vazio: true, bytes: 64 };
+        where += ` AND cd_municipio IN (${ix.muns.map(() => "?").join(",")})`; par = par.concat(ix.muns); }
+      const nrs = sb.prepare(`SELECT DISTINCT nr_votavel FROM voto_secao WHERE ${where} ORDER BY 1`).all(...par).map(r => r.nr_votavel);
+      const k = nrs.length, pos = new Map(nrs.map((nr, j) => [nr, j])), q = new Int32Array(ix.n * k).fill(-1), tem = new Uint8Array(ix.n); // -1: sem linha
+      casar(ix, sb.prepare(`SELECT cd_municipio, zona, secao, nr_votavel, qt FROM voto_secao WHERE ${where} ORDER BY cd_municipio, zona, secao`).iterate(...par),
+        (i, r) => { tem[i] = 1; const o = i * k + pos.get(r.nr_votavel); q[o] = Math.max(q[o], 0) + r.qt; });
+      const nomes = new Map(); for (const r of sb.prepare("SELECT nr_votavel, nm_votavel FROM votavel WHERE cargo = ?").iterate(cargo)) nomes.set(r.nr_votavel, r.nm_votavel);
+      return { k, nrs, nomes, q, tem, vazio: k === 0, bytes: q.byteLength + tem.byteLength + 1024 };
+    });
   };
   const bases = () => {
     let nomes = [];
@@ -101,7 +171,14 @@ export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "")
       for (const r of sb.prepare("SELECT nr_votavel, nm_votavel FROM votavel WHERE cargo = ?").iterate(cargo)) nomes.set(r.nr_votavel, r.nm_votavel);
       return { mapa, nomes };
     },
-    disponiveis: () => bases().map(b => ({ turno: b.turno, uf: b.uf, tempo_desde_abertura: !!b.rel, votos_por_secao_apos_limiar: b.relVersao >= 2 })),
+    // Bases do turno (e UFs) com o índice compacto; cauda(tipo, limiar) e candidatos(cargo) usam a mesma ordem de seções.
+    secoes(turno, ufs = null) {
+      return bases().filter(b => b.turno === Number(turno) && (!ufs || ufs.includes(b.uf))).sort((a, c) => a.uf < c.uf ? -1 : 1).map(b => ({
+        turno: b.turno, uf: b.uf, temCauda: !!(b.rel && b.relVersao >= 2), indice: () => indice(b),
+        cauda: (tipo, lim) => cauda(b, indice(b), tipo, lim), candidatos: cargo => candidatos(b, indice(b), cargo),
+      }));
+    },
+    disponiveis: () =>bases().map(b => ({ turno: b.turno, uf: b.uf, tempo_desde_abertura: !!b.rel, votos_por_secao_apos_limiar: b.relVersao >= 2 })),
     // Fecha a base derivada aberta (para trocar o arquivo por uma versão nova).
     soltar(nome) { const x = abertas.get(nome); if (x) { try { x.close(); } catch {} abertas.delete(nome); } esquecer(nome); },
     // Percorre linha a linha (sem montar listas grandes em memória). cb(linha, base).

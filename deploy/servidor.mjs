@@ -6,6 +6,7 @@ const VERSAO = (() => { try { return readFileSync("/srv/eleicoes/versao", "utf8"
 import worker from "../worker/src/index.js";
 import { abrirD1, abrirUrnas, derivarTempos, ESTADO } from "../test/d1.mjs";
 import { resumoUrnas, curvaUrnas, distribuicaoUrnas } from "../worker/src/urnas.js";
+import { explorarUrnas } from "../worker/src/explorar_urnas.js";
 import os from "node:os";
 import { readdirSync, statSync, readFileSync as lerArq } from "node:fs";
 import { appendFileSync } from "node:fs";
@@ -49,6 +50,10 @@ const aquecer = async () => {
     for (const visao of ["horario_voto", "encerramento", "tempo_voto", "duracao"]) t.push(() => distribuicaoUrnas(env, { turno, visao }));
   }
   for (const f of t) { try { f(); } catch {} await new Promise(r => setTimeout(r, 50)); }
+  // Explorador de horários: carrega o índice de cada base e as consultas iniciais (limiar padrão).
+  for (const turno of ["2", "1"]) for (const medida of ["secoes", "votos_apos_hora"]) {
+    try { await explorarUrnas(env, { medida, linhas: "uf", filtros: { turno: [turno] } }); } catch {}
+  }
 };
 setTimeout(aquecer, 3000);
 setTimeout(derivar, 60_000); setInterval(derivar, 3600_000);
