@@ -12,10 +12,15 @@ fuso_antigo(){ case $2 in AC|AM|RO|RR|MT|MS) python3 -c "import sqlite3,sys;d=sq
 try: v=d.execute(\"select valor from meta where chave='apos_17h'\").fetchone()
 except Exception: v=None
 sys.exit(0 if not v or v[0]!='brasilia' else 1)";; *) return 1;; esac; }
-for passada in faltando refazer; do
-for turno in 1t 2t; do for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO ZZ; do
+# Terceira passada: bases sem o extrato de eventos (_eventos.csv.gz) são refeitas uma vez a partir dos arquivos do TSE.
+# Com o extrato, mudanças futuras no cálculo dos horários não precisam baixar nada: python3 etl/logs.py --refazer PREFIXO.
+# O 2º turno vem primeiro. Enquanto refaz, o site segue com a base anterior (os arquivos só são trocados no fim).
+for passada in faltando refazer extrato; do
+turnos="1t 2t"; [ $passada = extrato ] && turnos="2t 1t"
+for turno in $turnos; do for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO ZZ; do
   if [ $passada = faltando ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && continue
-  else [ -f $OUT/${turno}_${uf}_tempos.db ] && fuso_antigo $turno $uf || continue; st "logs ${turno} ${uf}: refazendo com o fuso corrigido"; fi
+  elif [ $passada = refazer ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && fuso_antigo $turno $uf || continue; st "logs ${turno} ${uf}: refazendo com o fuso corrigido"
+  else [ -f $OUT/${turno}_${uf}_tempos.db ] && [ ! -f $OUT/${turno}_${uf}_eventos.csv.gz ] || continue; st "logs ${turno} ${uf}: refazendo para guardar o extrato de eventos (encerramento pela confirmação do mesário)"; fi
   livre=$(df --output=avail -BG $BASE | tail -1 | tr -dc 0-9)
   if [ "${livre:-0}" -lt 15 ]; then st "logs pausados: só ${livre} GB livres no disco"; exit 1; fi
   st "logs ${turno} ${uf}: baixando"
@@ -27,7 +32,7 @@ for turno in 1t 2t; do for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE
   if python3 $BASE/app/etl/logs.py $T $OUT/${turno}_${uf} >> $BASE/logs_processamento.txt 2>&1; then
     st "logs ${turno} ${uf} processados"
   else
-    st "logs ${turno} ${uf}: falha no processamento"; rm -f $OUT/${turno}_${uf}_tempos.db; falhas=$((falhas+1))
+    st "logs ${turno} ${uf}: falha no processamento (a base anterior, se havia, continua no ar)"; rm -f $OUT/${turno}_${uf}_*.tmp; falhas=$((falhas+1))
   fi
   rm -f $T/*.zip
 done; done; done

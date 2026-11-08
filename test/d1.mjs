@@ -19,7 +19,7 @@ export function abrirD1(caminho) {
 
 // Bases de horários das urnas (uma por turno e UF, geradas por etl/logs.py). Só leitura.
 // Uma base só entra quando está completa (voto_minuto_uf é gravada no fim do processamento).
-import { readdirSync, existsSync, createReadStream, renameSync, rmSync } from "node:fs";
+import { readdirSync, existsSync, createReadStream, renameSync, rmSync, statSync } from "node:fs";
 import { createGunzip } from "node:zlib";
 import { createInterface } from "node:readline";
 // O log de uma urna usada nos dois turnos traz os dois dias: a base 2t_XX tem também linhas do 1º turno
@@ -39,6 +39,17 @@ export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "")
     return v;
   };
   const resolver = (params, b) => typeof params === "function" ? params(b) : params;
+  // Abre (só leitura) e reabre quando o arquivo é trocado (etl/logs.py grava com nome temporário e renomeia).
+  const mtimes = new Map();
+  const esquecer = arq => { const pre = arq.endsWith("_rel.db") ? `rel|${arq.replace("_rel.db", "_tempos.db")}|` : `db|${arq}|`;
+    for (const [k, x] of cache) if (k.startsWith(pre)) { cache.delete(k); linhasCache -= x.length + 1; } };
+  const abrir = arq => {
+    let m; try { m = statSync(pasta + "/" + arq).mtimeMs; } catch { return null; }
+    const x = abertas.get(arq);
+    if (x && mtimes.get(arq) === m) return x;
+    if (x) { try { x.close(); } catch {} abertas.delete(arq); esquecer(arq); }
+    try { const b = new DatabaseSync(pasta + "/" + arq, { readOnly: true }); abertas.set(arq, b); mtimes.set(arq, m); return b; } catch { return null; }
+  };
   // Bases de votos por seção (etl/secao.py): <UF>_secao.db (governador, senador) e BR_secao.db (presidente).
   const abrirSecao = uf => {
     const f = `${uf}_secao.db`; let b = abertas.get(f);
@@ -50,11 +61,7 @@ export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "")
     try { nomes = readdirSync(pasta).filter(f => /^[12]t_[A-Z]{2}_tempos\.db$/.test(f)); } catch {}
     const out = [];
     for (const f of nomes) {
-      let b = abertas.get(f);
-      if (!b) {
-        try { b = new DatabaseSync(pasta + "/" + f, { readOnly: true }); } catch { continue; }
-        abertas.set(f, b);
-      }
+      const b = abrir(f); if (!b) continue;
       try { if (!b.prepare("SELECT 1 FROM main.voto_minuto_uf LIMIT 1").get()) continue; } catch { continue; }
       if (!filtradas.has(b)) {
         const t = Number(f[0]);
@@ -66,8 +73,8 @@ export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "")
       try { apos17Brasilia = b.prepare("SELECT valor FROM meta WHERE chave = 'apos_17h'").get()?.valor === "brasilia"; } catch {}
       // Base derivada com o tempo de cada voto desde a abertura da urna (gerada por derivarTempos).
       const fr = f.replace("_tempos.db", "_rel.db");
-      let rel = abertas.get(fr) || null;
-      if (!rel && existsSync(pasta + "/" + fr)) { try { rel = new DatabaseSync(pasta + "/" + fr, { readOnly: true }); abertas.set(fr, rel); } catch {} }
+      let rel = existsSync(pasta + "/" + fr) ? abrir(fr) : null;
+      if (rel && mtimes.get(fr) < mtimes.get(f)) rel = null; // base de horários refeita depois: espera a derivada nova
       let relVersao = 0;
       if (rel) { try { relVersao = Number(rel.prepare("SELECT valor FROM meta WHERE chave = 'versao'").get()?.valor || 1); } catch { relVersao = 1; } }
       if (rel && relVersao < REL_MIN(Number(f[0]))) { rel = null; relVersao = 0; } // antiga, mistura os turnos: espera a nova
@@ -96,10 +103,7 @@ export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "")
     },
     disponiveis: () => bases().map(b => ({ turno: b.turno, uf: b.uf, tempo_desde_abertura: !!b.rel, votos_por_secao_apos_limiar: b.relVersao >= 2 })),
     // Fecha a base derivada aberta (para trocar o arquivo por uma versão nova).
-    soltar(nome) { const x = abertas.get(nome); if (x) { try { x.close(); } catch {} abertas.delete(nome); }
-      // Só os resultados dessa base derivada saem da memória; os das bases de horários continuam valendo.
-      const pre = `rel|${nome.replace("_rel.db", "_tempos.db")}|`;
-      for (const [k, x] of cache) if (k.startsWith(pre)) { cache.delete(k); linhasCache -= x.length + 1; } },
+    soltar(nome) { const x = abertas.get(nome); if (x) { try { x.close(); } catch {} abertas.delete(nome); } esquecer(nome); },
     // Percorre linha a linha (sem montar listas grandes em memória). cb(linha, base).
     // relSql (opcional) roda antes na base derivada da mesma UF e o resultado vai como base.extra.
     percorrer(sql, params = [], filtro = {}, cb, relSql = null, relParams = []) {
@@ -147,7 +151,7 @@ export async function derivarTempos(pasta, log = () => {}, onTroca = null) {
   for (const f of nomes.sort()) {
     const pre = pasta + "/" + f.replace("_tempos.db", ""), rel = pre + "_rel.db", gz = pre + "_votos.csv.gz";
     if (!existsSync(gz)) continue;
-    if (existsSync(rel)) { // já existe: só refaz se for da versão antiga
+    if (existsSync(rel) && statSync(rel).mtimeMs >= statSync(pasta + "/" + f).mtimeMs) { // já existe: só refaz se for da versão antiga
       let v = 1; try { const x = new DatabaseSync(rel, { readOnly: true }); v = Number(x.prepare("SELECT valor FROM meta WHERE chave = 'versao'").get()?.valor || 1); x.close(); } catch {}
       if (v >= REL_MIN(Number(f[0]))) continue;
     }

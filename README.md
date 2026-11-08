@@ -65,11 +65,13 @@ npx wrangler deploy
 ## Logs das urnas: horário de cada voto
 - `etl/logs.py PASTA SAIDA [--calibrar N]` lê os pacotes de log de cada seção (`.logjez` / `-log.jez`, ZIP ou 7z), incluindo os logs arquivados em urnas de contingência. Gera:
   - `SAIDA_votos.csv.gz`: uma linha por voto (turno, UF, município, zona, seção, horário). Também gera `.parquet` se o pyarrow estiver instalado.
+  - `SAIDA_eventos.csv.gz`: extrato dos outros eventos que importam para os horários (abertura, tentativas, cancelamentos e confirmação do encerramento, inspeções, justificativas), só com códigos fixos, sem o texto das mensagens.
   - `SAIDA_tempos.db` com duas tabelas:
     - `secao_tempo`: abertura, primeiro e último voto, encerramento, total de votos e votos depois das 17h e das 19h.
     - `voto_minuto_uf`: votos por minuto em cada UF.
 - Só guarda horário e tipo de evento. O texto das mensagens não é gravado, porque erros do terminal do mesário às vezes trazem o nome de um eleitor.
 - O log não diz em quem foi o voto, por desenho do TSE: o arquivo de votos (RDV) é embaralhado e não guarda hora nem ordem.
+- `etl/logs.py --refazer SAIDA` refaz `SAIDA_tempos.db` só com os dois extratos, sem baixar os arquivos do TSE de novo (use quando mudar a forma de calcular abertura ou encerramento).
 - `--calibrar 50` lista as mensagens mais frequentes dos primeiros 50 logs, para ajustar os padrões de evento antes de rodar tudo.
 - `etl/grupos_encerramento.py TEMPOS.db PASTA_VOTACAO_SECAO` monta a tabela "resultado por grupo de horário de encerramento" em duas versões: bruta e comparando cada seção com a média do próprio município.
 

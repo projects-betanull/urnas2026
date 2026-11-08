@@ -2,6 +2,9 @@
 // Prepara: python3 test/gerar_logs.py /tmp/tu && python3 etl/logs.py /tmp/tu /tmp/tu/logs/2t_SP && (zip BR) && python3 etl/secao.py
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, copyFileSync, readFileSync, renameSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
 import { abrirD1, abrirUrnas, derivarTempos } from "./d1.mjs";
 import { explorarUrnas, valoresUrnas } from "../worker/src/explorar_urnas.js";
 import { resumoUrnas, curvaUrnas, distribuicaoUrnas, municipiosUrnas } from "../worker/src/urnas.js";
@@ -44,4 +47,23 @@ assert.equal(distribuicaoUrnas(env, { turno: 2, visao: "tempo_voto" }).total_vot
 // Encerramento = confirmação do mesário, não a tentativa cancelada nem o "Inicio do Encerramento" (depois do registro dos mesários).
 const encs = new DatabaseSync(P + "/logs/2t_SP_tempos.db", { readOnly: true }).prepare("SELECT DISTINCT encerramento FROM secao_tempo WHERE turno = 1").all().map(r => r.encerramento);
 assert.deepEqual(encs, ["18:30:00"]);
+// Extrato de eventos: só códigos fixos, sem texto das mensagens nem números de título; e dá para refazer a base só com ele.
+const ev = gunzipSync(readFileSync(P + "/logs/2t_SP_eventos.csv.gz")).toString().trim().split(/\r?\n/);
+assert.equal(ev[0], "turno,uf,cd_municipio,zona,secao,horario,evento");
+const codigos = new Set(ev.slice(1).map(l => l.split(",")[6]));
+assert.ok(codigos.has("enc_confirmado") && codigos.has("enc_cancelado") && codigos.has("abertura") && codigos.has("enc_inicio"), [...codigos].join());
+assert.ok(ev.slice(1).every(l => /^[12],SP,\d{5},\d{4},\d{4},\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,[a-z_]+$/.test(l)), "extrato sem texto livre");
+mkdirSync(P + "/refeito", { recursive: true });
+for (const f of ["_votos.csv.gz", "_eventos.csv.gz"]) copyFileSync(P + "/logs/2t_SP" + f, P + "/refeito/2t_SP" + f);
+execFileSync("python3", ["etl/logs.py", "--refazer", P + "/refeito/2t_SP"]);
+const tab = (f, t) => new DatabaseSync(f, { readOnly: true }).prepare(`SELECT * FROM ${t} ORDER BY 1,2,3,4${t === "secao_tempo" ? ",5" : ""}`).all().map(r => JSON.stringify(r));
+for (const t of ["secao_tempo", "voto_minuto_uf"]) assert.deepEqual(tab(P + "/refeito/2t_SP_tempos.db", t), tab(P + "/logs/2t_SP_tempos.db", t), "refazer pelo extrato dá a mesma base: " + t);
+// Base trocada no disco (refeita) é reaberta pelo servidor, sem reiniciar, e a memória daquela base é descartada.
+const env2 = { DB: env.DB, URNAS: abrirUrnas(P + "/refeito", P + "/secaodb") };
+const v1 = resumoUrnas(env2, {}).linhas[0].votos;
+copyFileSync(P + "/refeito/2t_SP_tempos.db", P + "/refeito/novo.tmp");
+const w = new DatabaseSync(P + "/refeito/novo.tmp"); w.exec("DELETE FROM secao_tempo WHERE secao > '0010'"); w.close();
+await new Promise(r => setTimeout(r, 20)); renameSync(P + "/refeito/novo.tmp", P + "/refeito/2t_SP_tempos.db");
+const v2 = resumoUrnas(env2, {}).linhas[0].votos;
+assert.ok(v2 > 0 && v2 < v1, `reaberta: ${v1} -> ${v2}`);
 console.log("teste_urnas_cand ok", p.linhas.map(l => `${l.linha} ${l.coluna} ${l.valor.toFixed(1)}`).join(" | "));
