@@ -60,6 +60,9 @@ dialog::backdrop{background:#0008}.qr{background:#fff;padding:10px;display:inlin
 .vals{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:7px;padding:4px 8px;margin-top:6px;font-size:13px}.vals label{display:flex;gap:6px;margin:3px 0;color:var(--ink);font-weight:400}
 .vals input{width:auto}
 @media(max-width:900px){.bar{grid-template-columns:92px 1fr 76px}}
+button.ib{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--muted);background:transparent;color:var(--muted);font:italic 700 12px Georgia,serif;padding:0;margin-left:6px;cursor:pointer;vertical-align:middle;line-height:1}
+button.ib:hover,button.ib[aria-expanded=true]{background:var(--acc);border-color:var(--acc);color:#fff}button.ib:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.ibox{background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:8px;padding:8px 11px;margin:6px 0 4px;font-size:13px;font-weight:400;color:var(--ink)}.ibox p{margin:5px 0}
 </style>
 </head>
 <body>
@@ -71,21 +74,22 @@ dialog::backdrop{background:#0008}.qr{background:#fff;padding:10px;display:inlin
 </div></header>
 <main>
 <aside class="card">
-  <h2>Montar a análise</h2>
+  <h2>Montar a análise<button type="button" class="ib" aria-expanded="false" aria-controls="infoDica" title="Como usar" aria-label="Como usar">i</button></h2>
+  <div class="ibox" id="infoDica" hidden><span id="dica">Clique em uma linha para descer um nível (UF → município, cargo → partido → candidato). Use a trilha acima do gráfico para voltar.</span></div>
   <label>Dados</label>
   <div class="seg" id="segBase"><button data-b="res" class="on">Resultados</button><button data-b="urn">Horários das urnas</button></div>
   <label>Turno</label>
   <div class="seg" id="segTurno"><button data-t="1" class="on">1º</button><button data-t="2">2º</button><button data-t="">Ambos</button></div>
-  <label for="medida">Medir</label><select id="medida"></select>
+  <label for="medida">Medir<button type="button" class="ib" id="ibMed" aria-expanded="false" aria-controls="infoMed" title="O que esta medida conta" aria-label="O que esta medida conta">i</button></label><div class="ibox" id="infoMed" hidden></div><select id="medida"></select>
   <label for="linhas">Linhas</label><select id="linhas"></select>
   <label for="colunas">Colunas (cruzar com)</label><select id="colunas"></select>
   <div id="buscaBox"><label for="busca">Nome do candidato contém</label><input id="busca" placeholder="ex.: SILVA"></div>
   <div id="limBox" style="display:none">
-    <label for="limHora">Limiar de horário (Brasília)</label><input id="limHora" value="17:00" inputmode="numeric" placeholder="17:00">
+    <label for="limHora">Limiar de horário (Brasília)<button type="button" class="ib" aria-expanded="false" aria-controls="infoLim" title="Sobre os limiares e a prorrogação até as 19h" aria-label="Sobre os limiares e a prorrogação até as 19h">i</button></label>
+    <div class="ibox" id="infoLim" hidden><p>Horários de Brasília (exterior: hora local), com precisão de minuto. Votos registrados por seção: limiar a partir de 16:00 ou de 8h00 de urna aberta.</p><p><b>Por que tantas urnas encerraram perto das 19h no 2º turno?</b> Já depois das 17h, o STF (ministro Cristiano Zanin) prorrogou a votação até as 19h, só nas seções que ainda estavam abertas; as já encerradas não reabriram. Muitas mesas ficaram abertas esperando, mas quase ninguém chegou: cerca de 7,5 mil seções encerraram perto das 19h, enquanto só uns 34 mil votos foram registrados depois das 17h.</p><p>Por isso, no 2º turno, as medidas “urnas/votos em urnas encerradas a partir do limiar” contam o total do dia dessas urnas, não votos tardios. Para votos dados depois do horário, use “votos registrados a partir do limiar de horário”. Detalhes em <a href="/urnas?turno=2">Horários das urnas</a>.</p></div><input id="limHora" value="17:00" inputmode="numeric" placeholder="17:00">
     <label for="limTempo">Limiar de tempo de urna aberta</label><input id="limTempo" value="9:00" inputmode="numeric" placeholder="9:00">
     <label for="cargo">Cargo (medidas de votos válidos e dimensão Candidato)</label><select id="cargo"><option value="PRESIDENTE">Presidente</option><option value="GOVERNADOR">Governador</option><option value="SENADOR">Senador</option></select>
     <label for="passo">Largura das faixas</label><select id="passo"><option value="5">5 min</option><option value="10">10 min</option><option value="15">15 min</option><option value="30" selected>30 min</option><option value="60">60 min</option></select>
-    <p class="muted" style="margin:6px 0 0">Horários de Brasília (exterior: hora local). Precisão de minuto. Votos registrados por seção: limiar a partir de 16:00 ou de 8h00 de urna aberta.</p>
   </div>
   <label>Filtros</label>
   <div class="row"><select id="fDim" style="flex:1"></select><button class="sec" id="fAdd">+</button></div>
@@ -94,7 +98,6 @@ dialog::backdrop{background:#0008}.qr{background:#fff;padding:10px;display:inlin
   <label for="ordem">Ordenar</label><select id="ordem"><option value="desc">Maior primeiro</option><option value="asc">Menor primeiro</option><option value="nome">Nome (A-Z)</option></select>
   <label for="limite">Mostrar</label><select id="limite"><option>20</option><option selected>50</option><option>100</option><option>500</option></select>
   <div class="row" style="margin-top:14px"><button id="exportar" class="sec">Exportar CSV</button></div>
-  <p class="muted" id="dica">Clique em uma linha para descer um nível (UF → município, cargo → partido → candidato). Use a trilha acima do gráfico para voltar.</p>
 </aside>
 <section class="card">
   <div id="aviso"></div>
@@ -150,6 +153,39 @@ dialog::backdrop{background:#0008}.qr{background:#fff;padding:10px;display:inlin
 
 <script>
 const $ = s => document.querySelector(s);
+// Botões "i": explicações escondidas que só aparecem quando a pessoa clica.
+document.addEventListener("click", e => { const b = e.target.closest(".ib"); if (!b) return; e.preventDefault(); const x = document.getElementById(b.getAttribute("aria-controls")); if (!x) return; x.hidden = !x.hidden; b.setAttribute("aria-expanded", String(!x.hidden)); });
+const INFO_MED = {
+  res: {
+    votos: "Votos nominais recebidos pelos candidatos, somados pelos boletins de urna de cada município (dados oficiais do TSE).",
+    candidatos: "Quantos candidatos distintos entram na linha, com os filtros aplicados.",
+    eleitos: "Candidatos com situação de eleito (inclusive por média e por QP), contados uma vez cada.",
+    patrimonio: "Soma dos bens declarados pelos candidatos ao TSE no registro da candidatura. É o valor que o próprio candidato informou, não uma avaliação.",
+    patrimonio_medio: "Média dos bens declarados por candidato; quem não declarou bens conta como zero.",
+  },
+  urn: {
+    secoes: "Número de urnas (seções eleitorais) com log oficial carregado.",
+    votos: "Votos registrados no log da urna. O log tem o horário de cada voto, mas não em quem se votou.",
+    votos_apos_hora: "Votos dados a partir do limiar de horário, ou seja, votos registrados na fila depois do horário escolhido.",
+    votos_apos_tempo: "Votos dados depois que a urna já estava aberta havia o tempo escolhido no limiar.",
+    pct_votos_apos_hora: "Parte dos votos registrados a partir do limiar de horário, em relação a todos os votos da linha.",
+    secoes_encerradas_apos: "Urnas cujo encerramento (confirmação do mesário) foi a partir do limiar de horário. No 2º turno, a prorrogação até as 19h deixou muitas urnas abertas quase sem votos novos.",
+    votos_urnas_encerradas_apos: "Todos os votos do dia das urnas que encerraram a partir do limiar, inclusive os da manhã. Não são votos tardios: para isso, use “votos registrados a partir do limiar de horário”.",
+    secoes_longas: "Urnas que ficaram abertas pelo tempo do limiar ou mais (da abertura ao encerramento).",
+    votos_urnas_longas: "Todos os votos do dia das urnas que funcionaram o tempo do limiar ou mais.",
+    encerramento_medio: "Horário médio de encerramento das urnas da linha, no horário de Brasília.",
+    duracao_media: "Tempo médio entre a abertura e o encerramento das urnas da linha.",
+    votos_candidato: "Votos válidos do boletim de urna de cada seção, para o cargo escolhido. Brancos e nulos ficam de fora.",
+    pct_votos_candidato: "Parte dos votos válidos do cargo escolhido que cada candidato teve na linha.",
+    desvio_mun_candidato: "Compara cada seção com o resultado do próprio município e mostra a diferença em pontos percentuais. Assim, desconta a geografia: cidades que fecham tarde votam diferente. Se a diferença entre grupos de horário some aqui, ela vinha do lugar, não do horário.",
+  },
+};
+function infoMedida() {
+  const t = (INFO_MED[st.base] || {})[st.medida];
+  $("#ibMed").style.display = t ? "" : "none";
+  if (!t) { $("#infoMed").hidden = true; $("#ibMed").setAttribute("aria-expanded", "false"); }
+  $("#infoMed").textContent = t || "";
+}
 const fmtN = v => v == null ? "–" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 const FORMATOS = {
   hora: v => v == null ? "–" : `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(Math.floor(v % 60)).padStart(2, "0")}`,
@@ -184,7 +220,7 @@ async function carregar() {
   $("#segTurno").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.t === st.turno));
   $("#segBase").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.b === st.base));
   fmt = (st.base === "urn" && FORMATOS[(META.urnas.formatos || {})[st.medida]]) || fmtN;
-  $("#medida").value = st.medida; $("#linhas").value = st.linhas; $("#colunas").value = st.colunas;
+  infoMedida(); $("#medida").value = st.medida; $("#linhas").value = st.linhas; $("#colunas").value = st.colunas;
   desenharChips(); desenharTrilha();
   aviso(""); $("#bars").innerHTML = '<span class="muted">Carregando…</span>';
   try {

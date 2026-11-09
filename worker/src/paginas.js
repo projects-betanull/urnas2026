@@ -9,6 +9,9 @@ const n = v => Number(v || 0).toLocaleString("pt-BR");
 const reais = v => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 const slug = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const titulo = s => String(s || "").toLowerCase().replace(/(^|\s|-)\S/g, m => m.toUpperCase()).replace(/ (Por|De|Da|Do|Dos|Das|E) /g, m => m.toLowerCase()).replace(/\bQp\b/g, "QP");
+// Botão "i": a explicação fica escondida numa caixa e só aparece quando a pessoa clica.
+export const botaoInfo = (id, rotulo = "Mais informações") => `<button type="button" class="ib" aria-expanded="false" aria-controls="${id}" title="${esc(rotulo)}" aria-label="${esc(rotulo)}">i</button>`;
+export const caixaInfo = (id, html) => `<div class="ibox" id="${id}" hidden>${html}</div>`;
 export const linkCandidato = c => `/candidato/${c.sq_candidato}-${slug(c.nome_urna)}`;
 
 function pagina({ titulo: t, descricao, canonico, corpo, origem }) {
@@ -22,9 +25,11 @@ header a{color:var(--ink);text-decoration:none;font-weight:700}a{color:var(--acc
 .muted{color:var(--muted)}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}td.r,th.r{text-align:right}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px}.k{display:flex;gap:14px;flex-wrap:wrap}.k div b{display:block;font-size:20px}
+.ib{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--muted);background:transparent;color:var(--muted);font:italic 700 13px Georgia,serif;padding:0;margin-left:6px;cursor:pointer;vertical-align:middle;line-height:1}.ib:hover,.ib[aria-expanded=true]{background:var(--acc);border-color:var(--acc);color:#fff}.ib:focus-visible{outline:2px solid var(--acc);outline-offset:2px}.ibox{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:8px;padding:10px 14px;margin:8px 0 12px;font-size:14px;font-weight:400}.ibox p{margin:6px 0}
 .tw{overflow-x:auto}footer{max-width:1000px;margin:0 auto;padding:20px 18px 40px;color:var(--muted);font-size:13px}</style></head><body>
 <header><div><a href="/">Eleições 2026 em dados</a> · <a href="/estados" style="font-weight:400">Estados</a> · <a href="/urnas" style="font-weight:400">Horários das urnas</a> · <a href="/#mcp" style="font-weight:400">Usar com IA (MCP)</a></div></header>
 <main>${corpo}</main>
+<script>document.addEventListener("click",e=>{const b=e.target.closest(".ib");if(!b)return;e.preventDefault();const x=document.getElementById(b.getAttribute("aria-controls"));if(!x)return;x.hidden=!x.hidden;b.setAttribute("aria-expanded",String(!x.hidden));});</script>
 <footer>Fonte: Tribunal Superior Eleitoral, Portal de Dados Abertos (resultados e candidaturas de 2026). Site independente, sem ligação com o TSE. Para cruzar, filtrar e exportar estes dados, use o <a href="/">explorador</a> ou o servidor MCP em <code>${origem}/mcp</code>.</footer></body></html>`;
 }
 export const paginaBase = o => new Response(pagina(o), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "max-age=300" } });
