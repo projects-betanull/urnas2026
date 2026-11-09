@@ -42,6 +42,10 @@ EVENTOS = [
     ("bu_gerado", re.compile(r"gerando relat[oó]rio \[bu\] \[in", re.I)),
     ("enc_outro", re.compile(r"(in[ií]cio|procedimento).{0,20}encerramento|encerramento da vota", re.I)),
 ]
+# Nome do arquivo no pacote de 2026: o03221ap0600900010004-log.jez = prefixo, UF, município (5), zona (4), seção (4).
+# Formato antigo/testes: o00407-0605000010001.logjez. O nome vale mais que o conteúdo: a urna de contingência começa o
+# log sem seção definida, e o conteúdo dela dava "seção 0000" (várias seções da zona caíam na mesma chave e se apagavam).
+RE_NOME_UF = re.compile(r"[a-z]{2}(\d{5})(\d{4})(\d{4})(?:-log\.jez|\.logjez)$", re.I)
 RE_NOME = re.compile(r"(\d{5})(\d{4})(\d{4})")
 RE_MUN = re.compile(r"Munic[ií]pio\D{0,5}(\d{4,5})", re.I)
 RE_ZONA = re.compile(r"Zona(?: Eleitoral)?\D{0,5}(\d{1,4})", re.I)
@@ -126,6 +130,21 @@ def pacotes(pasta):
 # (no exterior, das 8h às 17h locais). Diferença do horário local para o de Brasília, por UF:
 FUSO = {"AC": -2, "AM": -1, "RO": -1, "RR": -1, "MT": -1, "MS": -1}  # demais UFs: 0; ZZ: horário local do país
 
+# No Amazonas há dois fusos: o oeste (Atalaia do Norte, Benjamin Constant, Tabatinga, Eirunepé, Lábrea...) fica 2 h atrás
+# de Brasília, o resto 1 h. A votação abre às 8h de Brasília: 7h em Manaus, 6h no oeste. Cada seção do AM que abriu antes
+# das 6h30 locais é do oeste e tem os horários passados para o horário de Manaus (+1 h), o que o resto do sistema espera.
+# Idempotente: depois do ajuste a abertura fica depois das 7h e não é ajustada de novo.
+UF_DOIS_FUSOS = {"AM"}
+def ajustar_fuso(lista, uf):
+    if uf not in UF_DOIS_FUSOS:
+        return lista, False
+    ref = min((dt for t, dt in lista if t == "abertura"), default=None) or min((dt for t, dt in lista if t == "voto"), default=None)
+    if ref is None or ref.time() >= datetime.time(6, 30):
+        return lista, False
+    um = datetime.timedelta(hours=1)
+    return [(t, dt + um) for t, dt in lista], True
+
+
 def tempos_secao(lista, uf):
     """lista: [(código, datetime)] de uma seção num turno -> (abertura, primeiro, último, encerramento, votos, após 17h, após 19h)."""
     votos = sorted(dt for t, dt in lista if t == "voto")
@@ -150,7 +169,8 @@ def nova_base(caminho):
         votos_apos_17h INT, votos_apos_19h INT, PRIMARY KEY (turno, cd_municipio, zona, secao));
       CREATE TABLE voto_minuto_uf (turno INT, uf TEXT, minuto TEXT, votos INT, PRIMARY KEY (turno, uf, minuto));
       CREATE TABLE meta (chave TEXT PRIMARY KEY, valor TEXT);
-      INSERT INTO meta VALUES ('horarios', 'local'), ('apos_17h', 'brasilia'), ('encerramento', 'confirmacao'), ('extrato', '1');
+      INSERT INTO meta VALUES ('horarios', 'local'), ('apos_17h', 'brasilia'), ('encerramento', 'confirmacao'), ('extrato', '1'),
+        ('identificacao', 'nome_2026'), ('am_oeste', 'horario_de_manaus');
     """)
     return db
 
@@ -187,10 +207,11 @@ def processar(pasta, prefixo, calibrar=0):
     gze = gzip.open(f_ev + ".tmp", "wt", newline="", encoding="utf-8"); we = csv.writer(gze); we.writerow(CAB_EVENTOS)
     db = nova_base(f_db + ".tmp")
     minuto = collections.Counter()
-    n_sec = n_votos = sem_id = 0
+    n_sec = n_votos = sem_id = n_oeste = repetidas = 0; vistas = set()
     for uf, nome, dados in pacotes(pasta):
         evs, ident = eventos(linhas_de_log(dados))
-        m = RE_NOME.search(nome.split("-")[-1] if "-" in nome else nome)
+        base = os.path.basename(nome)
+        m = RE_NOME_UF.search(base) or RE_NOME.search(base.split("-")[-1] if "-" in base else base)
         if m:
             mun, zona, secao = m.groups()
         elif len(ident) == 3:
@@ -202,6 +223,12 @@ def processar(pasta, prefixo, calibrar=0):
         for tipo, dt in evs:
             por_turno[DATAS_TURNO[dt.date()]].append((tipo, dt))
         for turno, lista in por_turno.items():
+            lista, ajustou = ajustar_fuso(lista, uf)
+            n_oeste += ajustou
+            k = (turno, mun, zona, secao)
+            if k in vistas:
+                repetidas += 1  # a mesma seção em dois pacotes: a última substitui a anterior em secao_tempo
+            vistas.add(k)
             for tipo, dt in sorted(lista, key=lambda x: x[1]):
                 if tipo == "voto":
                     w.writerow([turno, uf, mun, zona, secao, dt.strftime(FMT)])
@@ -224,7 +251,8 @@ def processar(pasta, prefixo, calibrar=0):
         print("Parquet gerado.")
     except ImportError:
         print("pyarrow não instalado: ficou só o CSV compactado (pip install pyarrow para gerar Parquet).")
-    print(f"Pronto: {n_sec} seções, {n_votos} votos, {sem_id} pacotes sem identificação de seção.")
+    print(f"Pronto: {n_sec} seções, {n_votos} votos, {sem_id} pacotes sem identificação de seção, "
+          f"{repetidas} seções repetidas, {n_oeste} seções do oeste do AM ajustadas para o horário de Manaus.")
 
 
 def refazer(prefixo):
@@ -240,6 +268,10 @@ def refazer(prefixo):
     db = nova_base(f_db + ".tmp")
     minuto = collections.Counter(); n_votos = 0
     def gravar(k, lista):
+        lista, _ = ajustar_fuso(lista, k[1])
+        for t, dt in lista:
+            if t == "voto":
+                minuto[(k[0], k[1], dt.strftime("%H:%M"))] += 1
         t = tempos_secao(lista, k[1])
         db.execute("INSERT OR REPLACE INTO secao_tempo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", k + t)
         return t[4]
@@ -251,7 +283,6 @@ def refazer(prefixo):
             if atual: n_votos += gravar(atual, lista + evs.pop(atual, []))
             atual, lista = k, []
         lista.append(("voto", datetime.datetime.strptime(h, FMT)))
-        minuto[(k[0], uf, h[11:16])] += 1
     if atual: n_votos += gravar(atual, lista + evs.pop(atual, []))
     for k, l in evs.items():  # seções sem votos
         gravar(k, l)

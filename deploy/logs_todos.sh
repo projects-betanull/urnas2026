@@ -15,12 +15,20 @@ sys.exit(0 if not v or v[0]!='brasilia' else 1)";; *) return 1;; esac; }
 # Terceira passada: bases sem o extrato de eventos (_eventos.csv.gz) são refeitas uma vez a partir dos arquivos do TSE.
 # Com o extrato, mudanças futuras no cálculo dos horários não precisam baixar nada: python3 etl/logs.py --refazer PREFIXO.
 # O 2º turno vem primeiro. Enquanto refaz, o site segue com a base anterior (os arquivos só são trocados no fim).
-for passada in faltando refazer extrato; do
-turnos="1t 2t"; [ $passada = extrato ] && turnos="2t 1t"
+# Quarta passada (09/11): bases feitas antes de a seção vir do nome do arquivo (meta identificacao=nome_2026). Nelas as
+# urnas de contingência caíam na "seção 0000" e se apagavam (~360 mil votos a menos por seção no 2º turno), e o oeste do
+# AM ficava 1 h adiantado. Precisa dos arquivos do TSE: o extrato antigo já tem as seções erradas.
+ident_antiga(){ python3 -c "import sqlite3,sys;d=sqlite3.connect('file:$OUT/$1_$2_tempos.db?mode=ro',uri=True)
+try: v=d.execute(\"select valor from meta where chave='identificacao'\").fetchone()
+except Exception: v=None
+sys.exit(0 if not v or v[0]!='nome_2026' else 1)"; }
+for passada in faltando refazer extrato identificacao; do
+turnos="1t 2t"; [ $passada = extrato ] || [ $passada = identificacao ] && turnos="2t 1t"
 for turno in $turnos; do for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO ZZ; do
   if [ $passada = faltando ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && continue
   elif [ $passada = refazer ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && fuso_antigo $turno $uf || continue; st "logs ${turno} ${uf}: refazendo com o fuso corrigido"
-  else [ -f $OUT/${turno}_${uf}_tempos.db ] && [ ! -f $OUT/${turno}_${uf}_eventos.csv.gz ] || continue; st "logs ${turno} ${uf}: refazendo para guardar o extrato de eventos (encerramento pela confirmação do mesário)"; fi
+  elif [ $passada = extrato ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && [ ! -f $OUT/${turno}_${uf}_eventos.csv.gz ] || continue; st "logs ${turno} ${uf}: refazendo para guardar o extrato de eventos (encerramento pela confirmação do mesário)"
+  else [ -f $OUT/${turno}_${uf}_tempos.db ] && ident_antiga $turno $uf || continue; st "logs ${turno} ${uf}: refazendo com a seção tirada do nome do arquivo (contingência) e o fuso do oeste do AM"; fi
   livre=$(df --output=avail -BG $BASE | tail -1 | tr -dc 0-9)
   if [ "${livre:-0}" -lt 15 ]; then st "logs pausados: só ${livre} GB livres no disco"; exit 1; fi
   st "logs ${turno} ${uf}: baixando"
