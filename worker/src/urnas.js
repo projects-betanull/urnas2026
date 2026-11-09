@@ -45,19 +45,19 @@ export function resumoUrnas(env, p = {}) {
   return { disponiveis: U.disponiveis(), linhas, nota: NOTA };
 }
 
-// Votos por intervalo de tempo (padrão 10 min) no horário de Brasília. Sem UF, soma o Brasil (sem o exterior).
+// Votos por intervalo de tempo (padrão 10 min) no horário de Brasília. Sem UF, soma o Brasil e o exterior: no exterior a
+// votação vai das 8h às 17h locais, então o horário local entra como equivalente (17h local = 9h de votação = 17h de Brasília).
 export function curvaUrnas(env, p = {}) {
   const U = exigir(env), { turno, uf } = parametros(p);
   const passo = [1, 5, 10, 15, 30, 60].includes(Number(p.intervalo)) ? Number(p.intervalo) : 10;
   const soma = new Map();
   for (const l of U.consultar("SELECT turno, uf, minuto, votos FROM voto_minuto_uf", [], { turno, uf })) {
-    if (!uf && l.uf === "ZZ") continue;
     const m = paraMin(l.minuto) - 60 * fz(l.uf), k = `${l.turno}|${Math.floor(m / passo) * passo}`;
     soma.set(k, (soma.get(k) || 0) + l.votos);
   }
   const pontos = [...soma].map(([k, v]) => { const [t, m] = k.split("|").map(Number); return { turno: t, inicio: hhmm(m), votos: v }; })
     .sort((a, b) => a.turno - b.turno || a.inicio.localeCompare(b.inicio));
-  return { intervalo_minutos: passo, uf: uf || "Brasil (sem exterior)", horario: uf === "ZZ" ? "local" : "Brasília", pontos };
+  return { intervalo_minutos: passo, uf: uf || "Brasil e exterior", horario: uf === "ZZ" ? "local" : uf ? "Brasília" : "Brasília (exterior: horário local equivalente)", pontos };
 }
 
 // Por município (exige UF): seções, encerramento médio e último, votos depois das 17h de Brasília.
@@ -101,27 +101,28 @@ export function distribuicaoUrnas(env, p = {}) {
   const visao = String(p.visao || "horario_voto");
   if (!turno) throw new ErroApi(400, "Informe o turno (1 ou 2).");
   const soma = new Map(), add = (m, v, s = 0) => { const x = soma.get(m) || [0, 0]; x[0] += v; x[1] += s; soma.set(m, x); };
-  const fora = r => !uf && r.uf === "ZZ"; // o Brasil não mistura o exterior, que vota em outro horário
+  // O exterior entra no total: lá a votação vai das 8h às 17h locais, e o horário local vale como o equivalente de Brasília
+  // (17h local = 9h de votação = 17h de Brasília). Assim os totais batem com o resumo por UF, que já inclui o exterior.
   let unidade, faltando = [];
   if (visao === "horario_voto") {
     unidade = "minuto do dia";
-    for (const r of U.consultar("SELECT uf, minuto, votos FROM voto_minuto_uf", [], { turno, uf })) if (!fora(r)) add(paraMin(r.minuto) - 60 * fz(r.uf), r.votos);
+    for (const r of U.consultar("SELECT uf, minuto, votos FROM voto_minuto_uf", [], { turno, uf })) add(paraMin(r.minuto) - 60 * fz(r.uf), r.votos);
   } else if (visao === "tempo_voto") {
     unidade = "minutos desde a abertura";
     faltando = U.disponiveis().filter(d => d.turno === turno && (!uf || d.uf === uf) && !d.tempo_desde_abertura).map(d => d.uf);
-    for (const r of U.consultarRel("SELECT uf, minutos, SUM(votos) votos FROM voto_rel GROUP BY uf, minutos", [], { turno, uf })) if (!fora(r)) add(r.minutos, r.votos);
+    for (const r of U.consultarRel("SELECT uf, minutos, SUM(votos) votos FROM voto_rel GROUP BY uf, minutos", [], { turno, uf })) add(r.minutos, r.votos);
   } else if (visao === "encerramento") {
     unidade = "minuto do dia";
     for (const r of U.consultar(`SELECT uf, ${seg("encerramento")} / 60 m, COUNT(*) s, SUM(votos) v FROM secao_tempo WHERE encerramento IS NOT NULL GROUP BY uf, m`, [], { turno, uf }))
-      if (!fora(r)) add(r.m - 60 * fz(r.uf), r.v, r.s);
+      add(r.m - 60 * fz(r.uf), r.v, r.s);
   } else if (visao === "duracao") {
     unidade = "minutos de funcionamento";
     for (const r of U.consultar(`SELECT uf, (${seg("encerramento")} - ${seg("abertura")}) / 60 m, COUNT(*) s, SUM(votos) v FROM secao_tempo
         WHERE encerramento IS NOT NULL AND abertura IS NOT NULL AND encerramento > abertura GROUP BY uf, m`, [], { turno, uf }))
-      if (!fora(r)) add(r.m, r.v, r.s);
+      add(r.m, r.v, r.s);
   } else throw new ErroApi(400, "visao deve ser horario_voto, tempo_voto, encerramento ou duracao.");
   const pontos = [...soma].map(([m, [v, s]]) => [m, v, s]).sort((a, b) => a[0] - b[0]);
-  return { visao, turno, uf: uf || "Brasil (sem exterior)", unidade, horario: uf === "ZZ" ? "local" : "Brasília",
+  return { visao, turno, uf: uf || "Brasil e exterior", unidade, horario: uf === "ZZ" ? "local" : uf ? "Brasília" : "Brasília (exterior: horário local equivalente)",
     colunas: ["minuto", "votos", "secoes"], pontos, total_votos: pontos.reduce((a, p) => a + p[1], 0), total_secoes: pontos.reduce((a, p) => a + p[2], 0),
     ufs_sem_dado: faltando, nota: NOTA };
 }
