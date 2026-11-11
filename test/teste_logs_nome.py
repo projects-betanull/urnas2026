@@ -32,6 +32,9 @@ with tempfile.TemporaryDirectory() as d:
         z.writestr("o03221am0280000010004-bu.dat", b"x")  # outros arquivos do pacote: ignorados
         # Oeste do AM: abre às 6h locais (8h de Brasília) e deve virar 7h (horário de Manaus).
         z.writestr("o03221am0285000010001-log.jez", log(6, 5, "1"))
+    # Zip de outra UF esquecido na mesma pasta (execução interrompida): não pode entrar na base do AM.
+    with zipfile.ZipFile(os.path.join(d, "arquivos_SP.zip"), "w") as z:
+        z.writestr("o03221sp7107200010001-log.jez", log(8, 50, "1"))
     pre = os.path.join(d, "2t_AM")
     subprocess.run([sys.executable, os.path.join(AQUI, "..", "etl", "logs.py"), d, pre], check=True, stdout=subprocess.DEVNULL)
     db = sqlite3.connect(pre + "_tempos.db")
@@ -41,6 +44,7 @@ with tempfile.TemporaryDirectory() as d:
     por_secao = db.execute("SELECT SUM(votos) FROM secao_tempo WHERE turno = 2").fetchone()[0]
     por_minuto = db.execute("SELECT SUM(votos) FROM voto_minuto_uf WHERE turno = 2").fetchone()[0]
     assert por_secao == por_minuto == 65, (por_secao, por_minuto)
+    assert db.execute("SELECT COUNT(*) FROM secao_tempo WHERE uf <> 'AM'").fetchone()[0] == 0
     assert db.execute("SELECT MIN(minuto) FROM voto_minuto_uf").fetchone()[0] == "07:05"
     assert dict(db.execute("SELECT * FROM meta"))["identificacao"] == "nome_2026"
     # O extrato por voto também fica no horário de Manaus, e refazer a partir dele não ajusta de novo.

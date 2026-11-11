@@ -22,21 +22,31 @@ ident_antiga(){ python3 -c "import sqlite3,sys;d=sqlite3.connect('file:$OUT/$1_$
 try: v=d.execute(\"select valor from meta where chave='identificacao'\").fetchone()
 except Exception: v=None
 sys.exit(0 if not v or v[0]!='nome_2026' else 1)"; }
-for passada in faltando refazer extrato identificacao; do
+# Base com logs de outra UF (11/11): um zip de SP que sobrou em logs_tmp entrou na base 2t_TO e SP saía em dobro nos
+# totais do país. Essas bases são refeitas junto com a passada "identificacao"; antes de cada download a pasta temporária
+# é limpa dos zips de outras UFs, e etl/logs.py só lê o pacote da UF pedida.
+misturada(){ python3 -c "import sqlite3,sys;d=sqlite3.connect('file:$OUT/$1_$2_tempos.db?mode=ro',uri=True)
+try: v=d.execute(\"select 1 from secao_tempo where uf<>'$2' limit 1\").fetchone()
+except Exception: v=None
+sys.exit(0 if v else 1)"; }
+# A passada "identificacao" vem antes da "extrato": o 2º turno fica certo primeiro (quem é refeito já sai com o extrato).
+for passada in faltando refazer identificacao extrato; do
 turnos="1t 2t"; [ $passada = extrato ] || [ $passada = identificacao ] && turnos="2t 1t"
 for turno in $turnos; do for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO ZZ; do
   if [ $passada = faltando ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && continue
   elif [ $passada = refazer ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && fuso_antigo $turno $uf || continue; st "logs ${turno} ${uf}: refazendo com o fuso corrigido"
   elif [ $passada = extrato ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && [ ! -f $OUT/${turno}_${uf}_eventos.csv.gz ] || continue; st "logs ${turno} ${uf}: refazendo para guardar o extrato de eventos (encerramento pela confirmação do mesário)"
-  else [ -f $OUT/${turno}_${uf}_tempos.db ] && ident_antiga $turno $uf || continue; st "logs ${turno} ${uf}: refazendo com a seção tirada do nome do arquivo (contingência) e o fuso do oeste do AM"; fi
+  else [ -f $OUT/${turno}_${uf}_tempos.db ] && { ident_antiga $turno $uf || misturada $turno $uf; } || continue; st "logs ${turno} ${uf}: refazendo (seção pelo nome do arquivo, fuso do oeste do AM ou base com logs de outra UF)"; fi
   livre=$(df --output=avail -BG $BASE | tail -1 | tr -dc 0-9)
   if [ "${livre:-0}" -lt 15 ]; then st "logs pausados: só ${livre} GB livres no disco"; exit 1; fi
+  # Sobras de execução interrompida: zips já renomeados e downloads parciais de outra UF ou de outro turno.
+  find $T -maxdepth 1 \( -name '*.zip' -o -name '*.part' \) ! -name "${turno}_${uf}.part" -delete
   st "logs ${turno} ${uf}: baixando"
-  if ! curl -fsSL --retry 8 --retry-delay 30 --retry-all-errors -C - -o $T/$uf.zip \
+  if ! curl -fsSL --retry 8 --retry-delay 30 --retry-all-errors -C - -o $T/${turno}_${uf}.part \
        "https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes2026/arqurnatot/bu_imgbu_logjez_rdv_vscmr_2026_${turno}_${uf}.zip"; then
     st "logs ${turno} ${uf}: falha no download (tenta de novo na próxima execução)"; falhas=$((falhas+1)); continue
   fi
-  mv $T/$uf.zip $T/arquivos_$uf.zip
+  mv $T/${turno}_${uf}.part $T/arquivos_$uf.zip
   if python3 $BASE/app/etl/logs.py $T $OUT/${turno}_${uf} >> $BASE/logs_processamento.txt 2>&1; then
     st "logs ${turno} ${uf} processados"
   else

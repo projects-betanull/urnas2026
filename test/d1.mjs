@@ -30,7 +30,7 @@ const REL_MIN = turno => turno === 2 ? 3 : 2;
 // Resultados pequenos ficam em memória: as bases só mudam quando um arquivo novo aparece ou é trocado.
 const CACHE_MAX_LINHAS = 400_000, CACHE_LINHAS_POR_ITEM = 50_000;
 export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "") + "/secao") {
-  const abertas = new Map(), filtradas = new WeakSet(), cache = new Map(); let linhasCache = 0;
+  const abertas = new Map(), filtradas = new WeakSet(), misturadas = new WeakSet(), cache = new Map(); let linhasCache = 0;
   const lembrar = (chave, calc) => {
     const h = cache.get(chave); if (h) { cache.delete(chave); cache.set(chave, h); return h; }
     const v = calc(); if (v.length > CACHE_LINHAS_POR_ITEM) return v;
@@ -134,10 +134,14 @@ export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "")
       const b = abrir(f); if (!b) continue;
       try { if (!b.prepare("SELECT 1 FROM main.voto_minuto_uf LIMIT 1").get()) continue; } catch { continue; }
       if (!filtradas.has(b)) {
-        const t = Number(f[0]);
-        b.exec(`CREATE TEMP VIEW IF NOT EXISTS secao_tempo AS SELECT * FROM main.secao_tempo WHERE turno = ${t};
-          CREATE TEMP VIEW IF NOT EXISTS voto_minuto_uf AS SELECT * FROM main.voto_minuto_uf WHERE turno = ${t};`);
+        // Cada base responde só pelo próprio turno E pela própria UF. Em 11/2026 um zip de SP que sobrou na pasta
+        // temporária entrou junto na base 2t_TO, e SP saía duas vezes nos totais do país (27 milhões de votos a mais).
+        const t = Number(f[0]), u = f.slice(3, 5);
+        b.exec(`CREATE TEMP VIEW IF NOT EXISTS secao_tempo AS SELECT * FROM main.secao_tempo WHERE turno = ${t} AND uf = '${u}';
+          CREATE TEMP VIEW IF NOT EXISTS voto_minuto_uf AS SELECT * FROM main.voto_minuto_uf WHERE turno = ${t} AND uf = '${u}';`);
         filtradas.add(b);
+        let mista = false; try { mista = !!b.prepare(`SELECT 1 FROM main.secao_tempo WHERE turno = ${t} AND uf <> '${u}' LIMIT 1`).get(); } catch {}
+        if (mista) misturadas.add(b);
       }
       let apos17Brasilia = false;
       try { apos17Brasilia = b.prepare("SELECT valor FROM meta WHERE chave = 'apos_17h'").get()?.valor === "brasilia"; } catch {}
@@ -148,6 +152,7 @@ export function abrirUrnas(pasta, pastaSecao = pasta.replace(/\/?[^/]+\/?$/, "")
       let relVersao = 0;
       if (rel) { try { relVersao = Number(rel.prepare("SELECT valor FROM meta WHERE chave = 'versao'").get()?.valor || 1); } catch { relVersao = 1; } }
       if (rel && relVersao < REL_MIN(Number(f[0]))) { rel = null; relVersao = 0; } // antiga, mistura os turnos: espera a nova
+      if (misturadas.has(b)) { rel = null; relVersao = 0; } // base com logs de outra UF: a derivada também veio misturada; espera a base refeita
       out.push({ nome: f, turno: Number(f[0]), uf: f.slice(3, 5), apos17Brasilia, db: b, rel, relVersao });
     }
     return out;
@@ -236,7 +241,7 @@ export async function derivarTempos(pasta, log = () => {}, onTroca = null) {
     try { if (!src.prepare("SELECT 1 FROM voto_minuto_uf LIMIT 1").get()) continue; } catch { continue; } // ainda processando
     // Seções numeradas (índice inteiro) para as contagens caberem em pouca memória: chave = índice*1440 + minuto.
     const turnoBase = Number(f[0]), idx = new Map(), secs = [], ab = [];
-    for (const r of src.prepare("SELECT cd_municipio, zona, secao, abertura FROM secao_tempo WHERE turno = ?").iterate(turnoBase)) {
+    for (const r of src.prepare("SELECT cd_municipio, zona, secao, abertura FROM secao_tempo WHERE turno = ? AND uf = ?").iterate(turnoBase, f.slice(3, 5))) {
       const k = `${r.cd_municipio}|${r.zona}|${r.secao}`; idx.set(k, secs.length); secs.push([r.cd_municipio, r.zona, r.secao]);
       if (r.abertura) { const [h, m, s2] = r.abertura.split(":").map(Number); ab.push(h * 3600 + m * 60 + s2); } else ab.push(null);
     }
@@ -247,13 +252,13 @@ export async function derivarTempos(pasta, log = () => {}, onTroca = null) {
     const CORTE_H = 14 * 60, CORTE_R = 8 * 60;
     ESTADO.atual = f; ESTADO.inicio = new Date().toISOString(); ESTADO.lidas = 0;
     const linhas = createInterface({ input: createReadStream(gz).pipe(createGunzip()), crlfDelay: Infinity });
-    const turno = turnoBase; let uf = null, cab = true;
+    const turno = turnoBase, uf = f.slice(3, 5); let cab = true;
     for await (const l of linhas) {
       if (cab) { cab = false; continue; }
       if ((++lidas & 0xFFFFF) === 0) ESTADO.lidas = lidas;
       const c = l.split(","); if (c.length < 6) continue;
       if (Number(c[0]) !== turnoBase) continue; // o log do 2º turno traz também o dia do 1º
-      uf ??= c[1];
+      if (c[1] !== uf) continue; // só a UF do arquivo (um zip de outra UF esquecido na pasta não entra)
       const i = idx.get(`${c[2]}|${c[3]}|${c[4]}`);
       const [h, m, s2] = c[5].slice(11).split(":").map(Number), mm = h * 60 + m;
       if (i !== undefined && mm >= CORTE_H) { const kk = i * 1440 + mm; caudaH.set(kk, (caudaH.get(kk) || 0) + 1); }

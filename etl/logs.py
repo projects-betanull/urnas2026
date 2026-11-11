@@ -108,8 +108,9 @@ def eventos(linhas):
     return out, ident
 
 
-def pacotes(pasta):
-    """Gera (uf, nome_arquivo, bytes) para cada log de urna."""
+def pacotes(pasta, so_uf=None):
+    """Gera (uf, nome_arquivo, bytes) para cada log de urna. Com so_uf, zips de outra UF na pasta são ignorados
+    (um zip de SP esquecido na pasta temporária já entrou na base de TO e dobrou SP nos totais do país)."""
     for raiz, _, arqs in os.walk(pasta):
         for a in sorted(arqs):
             caminho = os.path.join(raiz, a)
@@ -117,6 +118,9 @@ def pacotes(pasta):
             if al.endswith(".zip"):
                 m = RE_UF.search(a[:-4] if al.endswith(".zip") else a)
                 uf = m.group(1) if m else None
+                if so_uf and uf != so_uf:
+                    print(f"Ignorado {a}: não é o pacote de {so_uf}.", flush=True)
+                    continue
                 with zipfile.ZipFile(caminho) as z:
                     for n in z.namelist():
                         nl = n.lower()
@@ -208,7 +212,9 @@ def processar(pasta, prefixo, calibrar=0):
     db = nova_base(f_db + ".tmp")
     minuto = collections.Counter()
     n_sec = n_votos = sem_id = n_oeste = repetidas = 0; vistas = set()
-    for uf, nome, dados in pacotes(pasta):
+    # Saída no padrão do servidor (1t_SP, 2t_TO...): só entra o pacote daquela UF.
+    m_uf = re.search(r"(?:^|[\\/])[12]t_([A-Z]{2})$", prefixo)
+    for uf, nome, dados in pacotes(pasta, m_uf and m_uf.group(1)):
         evs, ident = eventos(linhas_de_log(dados))
         base = os.path.basename(nome)
         m = RE_NOME_UF.search(base) or RE_NOME.search(base.split("-")[-1] if "-" in base else base)
