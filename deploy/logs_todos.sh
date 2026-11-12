@@ -18,10 +18,12 @@ sys.exit(0 if not v or v[0]!='brasilia' else 1)";; *) return 1;; esac; }
 # Quarta passada (09/11): bases feitas antes de a seção vir do nome do arquivo (meta identificacao=nome_2026). Nelas as
 # urnas de contingência caíam na "seção 0000" e se apagavam (~360 mil votos a menos por seção no 2º turno), e o oeste do
 # AM ficava 1 h adiantado. Precisa dos arquivos do TSE: o extrato antigo já tem as seções erradas.
+# 11/11: também as bases sem meta votos=sem_repeticao_e_confirmacao (log arquivado repetido no pacote ou de outra
+# seção contava em dobro; voto confirmado para Presidente sem a linha "computado" ficava de fora).
 ident_antiga(){ python3 -c "import sqlite3,sys;d=sqlite3.connect('file:$OUT/$1_$2_tempos.db?mode=ro',uri=True)
-try: v=d.execute(\"select valor from meta where chave='identificacao'\").fetchone()
-except Exception: v=None
-sys.exit(0 if not v or v[0]!='nome_2026' else 1)"; }
+try: m=dict(d.execute(\"select chave, valor from meta where chave in ('identificacao','votos')\").fetchall())
+except Exception: m={}
+sys.exit(0 if m.get('identificacao')!='nome_2026' or m.get('votos')!='sem_repeticao_e_confirmacao' else 1)"; }
 # Base com logs de outra UF (11/11): um zip de SP que sobrou em logs_tmp entrou na base 2t_TO e SP saía em dobro nos
 # totais do país. Essas bases são refeitas junto com a passada "identificacao"; antes de cada download a pasta temporária
 # é limpa dos zips de outras UFs, e etl/logs.py só lê o pacote da UF pedida.
@@ -36,7 +38,7 @@ for turno in $turnos; do for uf in AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB 
   if [ $passada = faltando ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && continue
   elif [ $passada = refazer ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && fuso_antigo $turno $uf || continue; st "logs ${turno} ${uf}: refazendo com o fuso corrigido"
   elif [ $passada = extrato ]; then [ -f $OUT/${turno}_${uf}_tempos.db ] && [ ! -f $OUT/${turno}_${uf}_eventos.csv.gz ] || continue; st "logs ${turno} ${uf}: refazendo para guardar o extrato de eventos (encerramento pela confirmação do mesário)"
-  else [ -f $OUT/${turno}_${uf}_tempos.db ] && { ident_antiga $turno $uf || misturada $turno $uf; } || continue; st "logs ${turno} ${uf}: refazendo (seção pelo nome do arquivo, fuso do oeste do AM ou base com logs de outra UF)"; fi
+  else [ -f $OUT/${turno}_${uf}_tempos.db ] && { ident_antiga $turno $uf || misturada $turno $uf; } || continue; st "logs ${turno} ${uf}: refazendo (seção pelo nome do arquivo, fuso do oeste do AM, logs arquivados repetidos ou base com logs de outra UF)"; fi
   livre=$(df --output=avail -BG $BASE | tail -1 | tr -dc 0-9)
   if [ "${livre:-0}" -lt 15 ]; then st "logs pausados: só ${livre} GB livres no disco"; exit 1; fi
   # Sobras de execução interrompida: zips já renomeados e downloads parciais de outra UF ou de outro turno.

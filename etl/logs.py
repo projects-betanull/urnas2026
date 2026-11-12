@@ -81,10 +81,37 @@ def linhas_de_log(dados, profundidade=0):
             yield from conteudo.decode("latin-1", errors="replace").splitlines()
 
 
-def eventos(linhas):
-    """Gera (tipo, datetime) e devolve também identificação da seção achada no conteúdo."""
+def logs_do_pacote(dados, profundidade=0, nome=""):
+    """[(nome, profundidade, linhas)] de cada logd.dat do pacote; profundidade > 0 = log arquivado por urna de contingência."""
+    out = []
+    for n, conteudo in descompactar(dados):
+        base = os.path.basename(n).lower()
+        if base.endswith(".jez") and profundidade < 3:
+            out += logs_do_pacote(conteudo, profundidade + 1, (nome + " > " if nome else "") + n)
+        elif base.endswith(".dat") or base.endswith(".log"):
+            out.append(((nome + " > " if nome else "") + n, profundidade, conteudo.decode("latin-1", errors="replace").splitlines()))
+    return out
+
+
+# Voto cuja linha "computado" não chegou ao log: a urna desligou ou reiniciou logo depois da confirmação do último
+# cargo (Presidente, nos dois turnos). O boletim conta esse voto (conferido com o TSE em 2026: PB, PI e RS, 2º turno).
+RE_CONF_PRES = re.compile(r"voto confirmado para \[presidente\]", re.I)
+RE_HABILITADO = re.compile(r"eleitor foi habilitado", re.I)
+
+
+def eventos(linhas, com_linha=False):
+    """Gera (tipo, datetime) e devolve também identificação da seção achada no conteúdo.
+    com_linha=True: (tipo, datetime, linha de origem), para tirar repetições entre logs do mesmo pacote."""
     ident = {}
     out = []
+    pendente = None  # (datetime, linha) da confirmação para Presidente ainda sem o "computado"
+
+    def fechar_pendente():
+        nonlocal pendente
+        if pendente:
+            out.append(("voto",) + pendente if com_linha else ("voto", pendente[0]))
+            pendente = None
+
     for ln in linhas:
         partes = ln.split("\t")
         if len(partes) < 5:
@@ -96,16 +123,62 @@ def eventos(linhas):
                     m = rx.search(msg)
                     if m:
                         ident[k] = m.group(1)
+        if RE_HABILITADO.search(msg):  # próximo eleitor: a confirmação anterior sem "computado" vira voto
+            fechar_pendente()
+            continue
+        if RE_CONF_PRES.search(msg):
+            fechar_pendente()
+            try:
+                dt = datetime.datetime.strptime(partes[0].strip(), "%d/%m/%Y %H:%M:%S")
+            except ValueError:
+                continue
+            if dt.date() in DATAS_TURNO:
+                pendente = (dt, ln)
+            continue
         for tipo, rx in EVENTOS:
             if rx.search(msg):
                 try:
                     dt = datetime.datetime.strptime(partes[0].strip(), "%d/%m/%Y %H:%M:%S")
                 except ValueError:
                     break
+                if tipo == "voto":
+                    pendente = None
+                elif tipo == "abertura":
+                    fechar_pendente()
                 if dt.date() in DATAS_TURNO:
-                    out.append((tipo, dt))
+                    out.append((tipo, dt, ln) if com_linha else (tipo, dt))
                 break
+    fechar_pendente()
     return out, ident
+
+
+def eventos_do_pacote(dados, secao_pacote=None):
+    """Eventos de todos os logs de um pacote, sem repetição, e só os da própria seção.
+    - Um log arquivado pode vir mais de uma vez no pacote (um contém o outro, quando a urna foi trocada mais de uma
+      vez): cada linha conta uma vez só (MG 2026, 2º turno: 46 votos em dobro).
+    - Uma urna de contingência carrega os logs das seções em que já foi usada: o log arquivado da urna de OUTRA
+      seção (pelo próprio conteúdo, "Seção Eleitoral: NNNN") fica de fora, porque já conta no pacote daquela seção
+      (ES 2026, 2º turno: os 304 votos da seção 0112 apareciam também na 0085). Urna de contingência (seção 0000) entra,
+      e o log principal do pacote (fora de qualquer .jez interno) entra sempre.
+    Devolve (eventos, ident, votos ignorados de outras seções)."""
+    # Cada linha vale o maior número de vezes em que aparece num mesmo log (não a soma entre os logs): as linhas do
+    # log real têm hash próprio e não se repetem, mas assim duas linhas iguais num mesmo log continuam contando duas.
+    maior, quando, ident, ignorados = {}, {}, {}, 0
+    for nome, prof, linhas in logs_do_pacote(dados):
+        ev, idl = eventos(linhas, com_linha=True)
+        if len(ident) < 3 and len(idl) == 3:
+            ident = idl
+        sec = idl.get("secao")
+        if prof > 0 and secao_pacote and sec and sec.zfill(4) not in ("0000", secao_pacote):
+            ignorados += sum(1 for e in ev if e[0] == "voto")
+            continue
+        for k, n in collections.Counter((tipo, ln) for tipo, dt, ln in ev).items():
+            if n > maior.get(k, 0):
+                maior[k] = n
+        for tipo, dt, ln in ev:
+            quando[(tipo, ln)] = dt
+    evs = [(k[0], quando[k]) for k, n in maior.items() for _ in range(n)]
+    return evs, ident, ignorados
 
 
 def pacotes(pasta, so_uf=None):
@@ -174,7 +247,7 @@ def nova_base(caminho):
       CREATE TABLE voto_minuto_uf (turno INT, uf TEXT, minuto TEXT, votos INT, PRIMARY KEY (turno, uf, minuto));
       CREATE TABLE meta (chave TEXT PRIMARY KEY, valor TEXT);
       INSERT INTO meta VALUES ('horarios', 'local'), ('apos_17h', 'brasilia'), ('encerramento', 'confirmacao'), ('extrato', '1'),
-        ('identificacao', 'nome_2026'), ('am_oeste', 'horario_de_manaus');
+        ('identificacao', 'nome_2026'), ('am_oeste', 'horario_de_manaus'), ('votos', 'sem_repeticao_e_confirmacao');
     """)
     return db
 
@@ -211,13 +284,14 @@ def processar(pasta, prefixo, calibrar=0):
     gze = gzip.open(f_ev + ".tmp", "wt", newline="", encoding="utf-8"); we = csv.writer(gze); we.writerow(CAB_EVENTOS)
     db = nova_base(f_db + ".tmp")
     minuto = collections.Counter()
-    n_sec = n_votos = sem_id = n_oeste = repetidas = 0; vistas = set()
+    n_sec = n_votos = sem_id = n_oeste = repetidas = ign_outras = 0; vistas = set()
     # Saída no padrão do servidor (1t_SP, 2t_TO...): só entra o pacote daquela UF.
     m_uf = re.search(r"(?:^|[\\/])[12]t_([A-Z]{2})$", prefixo)
     for uf, nome, dados in pacotes(pasta, m_uf and m_uf.group(1)):
-        evs, ident = eventos(linhas_de_log(dados))
         base = os.path.basename(nome)
         m = RE_NOME_UF.search(base) or RE_NOME.search(base.split("-")[-1] if "-" in base else base)
+        evs, ident, ign = eventos_do_pacote(dados, m.group(3) if m else None)
+        ign_outras += ign
         if m:
             mun, zona, secao = m.groups()
         elif len(ident) == 3:
@@ -258,7 +332,8 @@ def processar(pasta, prefixo, calibrar=0):
     except ImportError:
         print("pyarrow não instalado: ficou só o CSV compactado (pip install pyarrow para gerar Parquet).")
     print(f"Pronto: {n_sec} seções, {n_votos} votos, {sem_id} pacotes sem identificação de seção, "
-          f"{repetidas} seções repetidas, {n_oeste} seções do oeste do AM ajustadas para o horário de Manaus.")
+          f"{repetidas} seções repetidas, {n_oeste} seções do oeste do AM ajustadas para o horário de Manaus, "
+          f"{ign_outras} votos de logs arquivados de outras seções ignorados (já contam na seção de origem).")
 
 
 def refazer(prefixo):
