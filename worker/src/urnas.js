@@ -27,6 +27,19 @@ function parametros(p) {
   return { turno, uf };
 }
 
+// Conferência com o TSE. O Quadro Geral de Quantitativos do TSE (boletins do dia de cada turno) traz 499.248 "seções
+// principais (urnas)" nos dois turnos, 1.351 delas no exterior. Aqui só entra seção com log de urna eletrônica publicado:
+// no pacote de arquivos de urna do exterior há 1.310 seções, 29 delas apuradas em cédula de papel (arquivos -logsa.jez,
+// sem horário de voto); as outras 41 do quadro não estão no pacote. Por isso o máximo daqui é 499.178 por turno.
+export const TSE_SECOES = 499248, TSE_SEM_LOG = { cedula_exterior: 29, exterior_fora_do_pacote: 41 };
+export function conferenciaTse(linhas, turno) {
+  const com_log = linhas.filter(l => l.turno === turno).reduce((a, l) => a + l.secoes, 0);
+  const sem_horario = TSE_SEM_LOG.cedula_exterior + TSE_SEM_LOG.exterior_fora_do_pacote;
+  return { turno, secoes_tse: TSE_SECOES, secoes_com_log: com_log, diferenca: TSE_SECOES - com_log,
+    exterior_em_cedula_de_papel: TSE_SEM_LOG.cedula_exterior, exterior_fora_do_pacote_de_arquivos: TSE_SEM_LOG.exterior_fora_do_pacote,
+    em_reprocessamento: Math.max(0, TSE_SECOES - com_log - sem_horario) };
+}
+
 // Resumo por UF e turno: seções, votos, encerramento médio e quanto aconteceu depois das 17h de Brasília.
 export function resumoUrnas(env, p = {}) {
   const U = exigir(env), { turno, uf } = parametros(p);
@@ -42,7 +55,10 @@ export function resumoUrnas(env, p = {}) {
       ultimo_encerramento: br(l.ultimo, l.uf), primeira_abertura: br(l.primeira_abertura, l.uf),
       secoes_encerradas_apos_17h30: l.e1730, secoes_encerradas_apos_18h: l.e18, secoes_encerradas_apos_19h: l.e19 }; })
     .sort((a, b) => a.turno - b.turno || a.uf.localeCompare(b.uf));
-  return { disponiveis: U.disponiveis(), linhas, nota: NOTA };
+  const r = { disponiveis: U.disponiveis(), linhas, nota: NOTA };
+  // Só no resumo do país: com filtro de UF a comparação com o total nacional não faz sentido.
+  if (!uf) r.conferencia_tse = [1, 2].filter(t => (!turno || t === turno) && linhas.some(l => l.turno === t)).map(t => conferenciaTse(linhas, t));
+  return r;
 }
 
 // Votos por intervalo de tempo (padrão 10 min) no horário de Brasília. Sem UF, soma o Brasil e o exterior: no exterior a

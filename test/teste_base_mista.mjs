@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { abrirUrnas } from "./d1.mjs";
-import { resumoUrnas, distribuicaoUrnas } from "../worker/src/urnas.js";
+import { resumoUrnas, distribuicaoUrnas, conferenciaTse } from "../worker/src/urnas.js";
 
 const d = mkdtempSync(tmpdir() + "/mista-");
 const base = (nome, linhas) => {
@@ -37,5 +37,13 @@ try {
   const t = distribuicaoUrnas(env, { turno: 2, visao: "tempo_voto" });
   assert.equal(t.total_votos, 300); assert.deepEqual(t.ufs_sem_dado, ["TO"]); // derivada de TO misturada: fica de fora, com aviso
   assert.equal(env.URNAS.secoes(2).reduce((a, b) => a + b.indice().n, 0), 2);
+  // Conferência com o TSE: o resumo do país diz quantas seções do quadro do TSE (499.248) ainda não têm log carregado.
+  const c = resumoUrnas(env, { turno: 2 }).conferencia_tse;
+  assert.deepEqual(c.map(x => [x.turno, x.secoes_tse, x.secoes_com_log, x.diferenca, x.em_reprocessamento]), [[2, 499248, 2, 499246, 499176]]);
+  assert.equal(conferenciaTse([{ turno: 2, secoes: 499178 }], 2).em_reprocessamento, 0); // base completa: só faltam as 70 do exterior
+  assert.equal(resumoUrnas(env, { turno: 2, uf: "SP" }).conferencia_tse, undefined);
+  const html = await (await import("../worker/src/pagina_urnas.js")).paginaUrnas(env, "http://x", new URLSearchParams("turno=2"));
+  const txt = typeof html === "string" ? html : await html.text();
+  assert.ok(txt.includes("O TSE conta 499.248 seções com urna em cada turno") && txt.includes("seções com log de urna"));
   console.log("teste_base_mista ok");
 } finally { rmSync(d, { recursive: true, force: true }); }

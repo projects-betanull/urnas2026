@@ -1,5 +1,5 @@
 // Página /urnas: horários das urnas (logs oficiais), renderizada no servidor.
-import { resumoUrnas, curvaUrnas, municipiosUrnas } from "./urnas.js";
+import { resumoUrnas, curvaUrnas, municipiosUrnas, conferenciaTse } from "./urnas.js";
 import { botaoInfo as bi, caixaInfo as cx } from "./paginas.js";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const n = v => Number(v || 0).toLocaleString("pt-BR");
@@ -27,6 +27,7 @@ export async function paginaUrnas(env, origem, q) {
   const disp = resumo.disponiveis, ufsT = disp.filter(d => d.turno === turno).map(d => d.uf).sort();
   const linhasT = resumo.linhas.filter(l => l.turno === turno);
   const tot = linhasT.reduce((a, l) => ({ s: a.s + l.secoes, v: a.v + l.votos, a17: a.a17 + l.votos_apos_17h, e18: a.e18 + l.secoes_encerradas_apos_18h }), { s: 0, v: 0, a17: 0, e18: 0 });
+  const cf = conferenciaTse(resumo.linhas, turno);
   const link = (t, u) => `/urnas?turno=${t}${u ? "&uf=" + u : ""}`;
   const corpo = `<h1>Horários das urnas nas eleições 2026${bi("i-ler", "Como ler estes horários")}</h1>
 ${cx("i-ler", `<p><b>De onde vêm os dados.</b> Dos logs oficiais das urnas publicados pelo TSE. O log registra o horário de cada voto, mas não em quem se votou.</p>
@@ -38,7 +39,10 @@ ${cx("i-ler", `<p><b>De onde vêm os dados.</b> Dos logs oficiais das urnas publ
 <p class="muted">Turno: ${[1, 2].map(t => t === turno ? `<b>${t}º</b>` : `<a href="${link(t, uf)}">${t}º</a>`).join(" · ")} · Estado: ${uf ? `<b>${esc(uf)}</b> · <a href="${link(turno)}">todos</a>` : "<b>todos os disponíveis</b>"}</p>
 ${erro ? `<div class="card">${esc(erro)}</div>` : ""}
 ${!ufsT.length && !erro ? `<div class="card">Os logs deste turno ainda estão sendo processados. Volte em breve.</div>` : ""}
-${ufsT.length ? `<div class="card k"><div><b>${n(tot.s)}</b>seções</div><div><b>${n(tot.v)}</b>votos registrados</div><div><b>${pct(tot.v ? 100 * tot.a17 / tot.v : 0)}</b>dos votos depois das 17h</div><div><b>${n(tot.e18)}</b>seções encerradas depois das 18h${turno === 2 ? bi("i-19h", "Por que tantas seções encerraram perto das 19h?") : ""}</div></div>
+${ufsT.length ? `<div class="card k"><div><b>${n(tot.s)}</b>seções com log de urna${bi("i-tse", "Por que não são as 499.248 seções do TSE?")}</div><div><b>${n(tot.v)}</b>votos registrados</div><div><b>${pct(tot.v ? 100 * tot.a17 / tot.v : 0)}</b>dos votos depois das 17h</div><div><b>${n(tot.e18)}</b>seções encerradas depois das 18h${turno === 2 ? bi("i-19h", "Por que tantas seções encerraram perto das 19h?") : ""}</div></div>
+${cx("i-tse", `<p><b>O TSE conta ${n(cf.secoes_tse)} seções com urna em cada turno</b> (Quadro Geral de Quantitativos). Esta página só conta seção com log de urna eletrônica publicado e já carregado: ${n(cf.secoes_com_log)}. Faltam ${n(cf.diferenca)}.</p>
+<p>${n(cf.exterior_em_cedula_de_papel + cf.exterior_fora_do_pacote_de_arquivos)} são do exterior e não têm horário de voto: ${n(cf.exterior_em_cedula_de_papel)} foram apuradas em cédula de papel e ${n(cf.exterior_fora_do_pacote_de_arquivos)} constam no quadro do TSE, mas não estão no pacote de arquivos de urna publicado.</p>
+${cf.em_reprocessamento ? `<p>As outras ${n(cf.em_reprocessamento)} estão em estados cuja base ainda está sendo refeita e entram quando o reprocessamento terminar.</p>` : ""}`)}
 ${turno === 2 ? cx("i-19h", `<b>Por que tantas seções encerraram perto das 19h no 2º turno?</b> Já depois das 17h, o STF (ministro Cristiano Zanin) prorrogou a votação até as 19h, só nas seções que ainda estavam abertas; as já encerradas não reabriram. Muitas mesas ficaram abertas esperando, mas quase ninguém chegou: ${n(tot.e18)} seções encerraram depois das 18h, a maioria entre 19h e 19h10, enquanto só ${n(tot.a17)} votos (${pct(tot.v ? 100 * tot.a17 / tot.v : 0)}) foram registrados depois das 17h. Por isso, no 2º turno, encerramento tardio não indica fila: para isso, use o horário dos votos.`) : ""}
 <p class="muted">Estados já processados neste turno (${ufsT.length} de 28): ${ufsT.map(u => u === uf ? `<b>${u}</b>` : `<a href="${link(turno, u)}">${u}</a>`).join(" · ")}. Os demais entram conforme o processamento avança.</p>
 <h2>Votos ao longo do dia${uf ? ` em ${esc(uf)}` : ""}, a cada 10 minutos${bi("i-curva", "Sobre este gráfico")}</h2>
